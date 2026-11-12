@@ -1,0 +1,564 @@
+/* ==========================================================================
+   Controle remoto de bancada
+   Mobile-first, tema escuro. Sem dependências externas.
+   ========================================================================== */
+
+/* --- 1. Variáveis ------------------------------------------------------- */
+:root {
+  --fundo: #0e1116;
+  --superficie: #181d25;
+  --superficie-alta: #222936;
+  --borda: #3a4352;
+  --texto: #f1f4f8;
+  --texto-suave: #9aa6b8;
+
+  --destaque: #4da3ff;
+  --ok: #3ddc84;
+  --alerta: #ffb020;
+  --armado: #ff8c1a;
+  --perigo: #e5252a;
+  --perigo-escuro: #a8161b;
+
+  --pino: 44px;
+  --pino-joystick: 68px;
+  --raio: 12px;
+
+  --fonte: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --fonte-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+
+/* --- 2. Base ------------------------------------------------------------ */
+[hidden] { display: none !important; }
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  overscroll-behavior: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+html { background: var(--fundo); }
+
+body {
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
+  padding:
+    env(safe-area-inset-top)
+    env(safe-area-inset-right)
+    env(safe-area-inset-bottom)
+    env(safe-area-inset-left);
+  background: var(--fundo);
+  color: var(--texto);
+  font-family: var(--fonte);
+  font-size: 16px;
+  line-height: 1.3;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+button, input, select { font: inherit; color: inherit; }
+
+button:focus-visible, summary:focus-visible, input:focus-visible, select:focus-visible {
+  outline: 3px solid var(--destaque);
+  outline-offset: 2px;
+}
+
+.visualmente-oculto {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* Faixa laranja ao redor da tela quando armado (não captura toques). */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  border: 0 solid var(--armado);
+  pointer-events: none;
+  z-index: 5;
+}
+body.armado::before { border-width: 6px; }
+
+/* --- 3. Barra superior -------------------------------------------------- */
+.barra {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+}
+
+.selo-conexao {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: var(--superficie-alta);
+  border: 2px solid var(--borda);
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+body[data-conexao="conectando"] .selo-conexao { border-color: var(--alerta); color: var(--alerta); }
+body[data-conexao="conectado"] .selo-conexao { border-color: var(--ok); color: var(--ok); }
+
+.botao-barra {
+  min-height: 44px;
+  min-width: 44px;
+  padding: 0 14px;
+  border: 2px solid var(--borda);
+  border-radius: var(--raio);
+  background: var(--superficie-alta);
+  font-weight: 600;
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+.botao-barra:disabled { opacity: 0.4; cursor: not-allowed; }
+.botao-icone { display: grid; place-items: center; padding: 0; }
+
+/* --- 4. Principal, aviso e leituras ------------------------------------ */
+.principal {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+  padding: 0 10px;
+}
+
+.aviso {
+  margin: 0;
+  height: 2.6em; /* reserva 2 linhas para o layout não pular */
+  overflow: hidden;
+  font-size: 14px;
+  line-height: 1.3;
+  color: var(--alerta);
+}
+
+.leituras {
+  padding: 6px 8px;
+  border-radius: var(--raio);
+  background: var(--superficie);
+}
+
+.tabela-leituras {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.tabela-leituras th[scope="col"] {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--texto-suave);
+}
+.tabela-leituras th[scope="row"] {
+  width: 24%;
+  text-align: left;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--texto-suave);
+}
+.tabela-leituras td {
+  font-size: 17px;
+  font-weight: 700;
+  white-space: nowrap;
+  padding: 2px 0;
+}
+.linha-medido td { color: var(--destaque); }
+
+.firmware {
+  margin: 2px 0 0;
+  font-size: 12px;
+  color: var(--texto-suave);
+}
+.firmware span { color: var(--texto); font-weight: 600; }
+
+/* --- 5. Controles de toque --------------------------------------------- */
+.controles {
+  flex: 1;
+  min-height: 160px;
+  display: grid;
+  grid-template-columns: 84px minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr) auto;
+  grid-template-areas:
+    "throttle joystick"
+    "throttle roll";
+  gap: 8px 10px;
+}
+
+#joystick, #roll, #throttle, .botao-armar, .botao-parar {
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.rotulo-controle {
+  position: absolute;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--texto-suave);
+  pointer-events: none;
+}
+
+/*
+ * Joystick: círculo com o maior diâmetro que cabe na área disponível.
+ * A área é um contêiner de tamanho; o joystick usa o menor lado dela
+ * (unidades cqw/cqh), então nunca fica achatado nem estoura a altura.
+ */
+.area-joystick {
+  grid-area: joystick;
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  place-items: center;
+  container-type: size;
+}
+.joystick {
+  position: relative;
+  width: min(100%, 42vh); /* reserva para navegadores sem cqw/cqh */
+  width: min(100cqw, 100cqh);
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: var(--superficie);
+  border: 2px solid var(--borda);
+}
+.joystick.ativo { border-color: var(--destaque); }
+
+/* Cruz de centro. */
+.joystick::before, .joystick::after {
+  content: "";
+  position: absolute;
+  background: var(--borda);
+  pointer-events: none;
+}
+.joystick::before { left: 50%; top: 8%; bottom: 8%; width: 2px; margin-left: -1px; }
+.joystick::after { top: 50%; left: 8%; right: 8%; height: 2px; margin-top: -1px; }
+
+.joystick .pino {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: var(--pino-joystick);
+  height: var(--pino-joystick);
+  margin: calc(var(--pino-joystick) / -2) 0 0 calc(var(--pino-joystick) / -2);
+  border-radius: 50%;
+  background: var(--destaque);
+  border: 3px solid var(--texto);
+  z-index: 1;
+}
+.rotulo-pitch { top: 10px; left: 50%; transform: translateX(-50%); }
+.rotulo-yaw { right: 12px; top: 50%; margin-top: 8px; }
+
+/* Deslizantes: trilho com tamanho real, pino de 44px. */
+.deslizante {
+  position: relative;
+  border-radius: var(--raio);
+  background: var(--superficie);
+  border: 2px solid var(--borda);
+}
+.deslizante.ativo { border-color: var(--destaque); }
+.deslizante .trilho {
+  position: absolute;
+  border-radius: 8px;
+  background: var(--superficie-alta);
+  border: 1px solid var(--borda);
+}
+.deslizante .pino {
+  position: absolute;
+  width: var(--pino);
+  height: var(--pino);
+  border-radius: 50%;
+  background: var(--destaque);
+  border: 3px solid var(--texto);
+  z-index: 1;
+}
+
+/* Roll: horizontal, bipolar. */
+.deslizante-horizontal {
+  grid-area: roll;
+  height: 68px;
+}
+.deslizante-horizontal .trilho {
+  left: 28px;
+  right: 28px;
+  top: 50%;
+  height: 14px;
+  margin-top: -7px;
+}
+.deslizante-horizontal .trilho::before { /* marca do centro */
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: -9px;
+  bottom: -9px;
+  width: 3px;
+  margin-left: -1.5px;
+  background: var(--texto-suave);
+}
+.deslizante-horizontal .pino {
+  top: 50%;
+  margin-top: calc(var(--pino) / -2);
+  left: calc(var(--fracao, 0.5) * 100%);
+  transform: translateX(-50%);
+}
+.deslizante-horizontal .rotulo-controle { left: 10px; top: 4px; }
+
+/* Throttle: vertical, unipolar. */
+.deslizante-vertical {
+  grid-area: throttle;
+  min-height: 160px;
+}
+.deslizante-vertical .trilho {
+  top: 30px;
+  bottom: 30px;
+  left: 50%;
+  width: 16px;
+  margin-left: -8px;
+  overflow: visible;
+}
+.deslizante-vertical .nivel {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: calc(var(--fracao, 0) * 100%);
+  border-radius: 8px;
+  background: var(--ok);
+}
+.deslizante-vertical .pino {
+  left: 50%;
+  margin-left: calc(var(--pino) / -2);
+  bottom: calc(var(--fracao, 0) * 100%);
+  transform: translateY(50%);
+}
+.deslizante-vertical .rotulo-controle { left: 50%; top: 6px; transform: translateX(-50%); }
+
+.deslizante.desabilitado { opacity: 0.35; }
+
+/* --- 6. Debug ----------------------------------------------------------- */
+.debug {
+  font-size: 13px;
+  color: var(--texto-suave);
+  background: var(--superficie);
+  border-radius: var(--raio);
+}
+.debug summary {
+  min-height: 44px;
+  padding: 0 12px;
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+}
+.debug-campos {
+  margin: 0;
+  padding: 0 12px 10px;
+  max-height: 26vh;
+  overflow: auto;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 4px 12px;
+}
+.debug-campos dt { color: var(--texto-suave); }
+.debug-campos dd { margin: 0; color: var(--texto); font-variant-numeric: tabular-nums; }
+.debug-pacote { font-family: var(--fonte-mono); overflow-wrap: anywhere; }
+
+/* --- 7. Ações fixas no rodapé ------------------------------------------ */
+.acoes {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 10px 10px;
+}
+
+.botao-armar, .botao-parar {
+  width: 100%;
+  border: 0;
+  border-radius: var(--raio);
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+}
+
+.botao-armar {
+  position: relative;
+  overflow: hidden;
+  min-height: 56px;
+  background: var(--superficie-alta);
+  border: 2px solid var(--alerta);
+  font-size: 18px;
+}
+.botao-armar::after { /* barra de progresso do segurar */
+  content: "";
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 6px;
+  width: 0;
+  background: var(--alerta);
+  transition: none;
+}
+.botao-armar.segurando::after {
+  width: 100%;
+  transition: width var(--duracao, 1000ms) linear;
+}
+.botao-armar.indisponivel {
+  opacity: 0.5;
+  border-color: var(--borda);
+}
+body.armado .botao-armar {
+  background: var(--armado);
+  border-color: var(--armado);
+  color: #1a0f00;
+}
+
+.botao-parar {
+  min-height: 80px;
+  background: var(--perigo);
+  color: #fff;
+  font-size: 32px;
+  box-shadow: inset 0 -5px 0 var(--perigo-escuro);
+}
+.botao-parar:active { background: #ff3a40; }
+
+/* --- 8. Ajustes (overlay) ---------------------------------------------- */
+.ajustes {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  background: var(--fundo);
+  padding:
+    calc(env(safe-area-inset-top) + 12px)
+    calc(env(safe-area-inset-right) + 12px)
+    calc(env(safe-area-inset-bottom) + 12px)
+    calc(env(safe-area-inset-left) + 12px);
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.form-ajustes {
+  max-width: 560px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.ajustes-titulo { margin: 0; font-size: 22px; }
+
+.form-ajustes fieldset {
+  margin: 0;
+  padding: 8px 14px 14px;
+  border: 1px solid var(--borda);
+  border-radius: var(--raio);
+  background: var(--superficie);
+}
+.form-ajustes legend { padding: 0 6px; font-weight: 700; color: var(--destaque); }
+
+.campo {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 10px;
+}
+.campo > span { font-size: 14px; color: var(--texto-suave); }
+.campo input:not([type="checkbox"]), .campo select {
+  width: 100%;
+  min-height: 48px;
+  padding: 0 12px;
+  font-size: 16px; /* 16px ou mais evita o zoom automático do iOS */
+  background: var(--fundo);
+  border: 2px solid var(--borda);
+  border-radius: 8px;
+}
+.campo-marcar {
+  flex-direction: row;
+  align-items: center;
+  gap: 12px;
+  min-height: 44px;
+}
+.campo-marcar > span { font-size: 16px; color: var(--texto); }
+.campo-marcar input { width: 28px; height: 28px; flex: none; accent-color: var(--destaque); }
+
+.ajustes-acoes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-bottom: 8px;
+}
+.botao-primario, .botao-secundario {
+  flex: 1 1 140px;
+  min-height: 48px;
+  padding: 0 16px;
+  border-radius: var(--raio);
+  font-weight: 700;
+  cursor: pointer;
+}
+.botao-secundario { background: var(--superficie-alta); border: 2px solid var(--borda); }
+.botao-primario { background: var(--destaque); border: 2px solid var(--destaque); color: #04121f; }
+
+/* --- 9. Paisagem com pouca altura -------------------------------------- */
+@media (orientation: landscape) and (max-height: 520px) {
+  body {
+    grid-template-columns: minmax(0, 1fr) 28%;
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+
+  .acoes {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+    padding: 8px 10px 8px 4px;
+  }
+  .botao-armar { min-height: 56px; font-size: 15px; }
+  .botao-parar { flex: 1; min-height: 72px; font-size: 28px; }
+
+  .barra { padding: 6px 10px; }
+  .principal { gap: 4px; padding-right: 4px; }
+  .aviso { height: 1.3em; font-size: 12px; }
+  .leituras { padding: 2px 8px; }
+  .tabela-leituras td { font-size: 15px; padding: 0; }
+  .firmware { display: none; }
+  .debug { display: none; }
+
+  .controles {
+    min-height: 0;
+    grid-template-columns: 76px minmax(0, 1fr) minmax(120px, 34%);
+    grid-template-rows: minmax(0, 1fr);
+    grid-template-areas: "throttle joystick roll";
+    align-items: stretch;
+    padding-bottom: 6px;
+  }
+  .deslizante-horizontal { align-self: center; }
+  .deslizante-vertical { min-height: 0; }
+}
+
+/* --- 10. Retrato com pouca altura (iPhone SE, barras do navegador) ------ */
+@media (orientation: portrait) and (max-height: 700px) {
+  .principal { gap: 4px; }
+  .aviso { height: 1.3em; font-size: 12px; }
+  .leituras { padding: 2px 8px; }
+  .tabela-leituras td { font-size: 15px; padding: 0; }
+  .firmware { display: none; }
+  .debug { display: none; }
+  .controles { min-height: 0; }
+  .deslizante-vertical { min-height: 0; }
+  .deslizante-horizontal { height: 56px; }
+  .botao-armar { min-height: 48px; }
+  .botao-parar { min-height: 68px; }
+}
