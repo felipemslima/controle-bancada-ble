@@ -51,7 +51,7 @@ Todos os campos de mais de um byte são **little-endian**.
 - **Roll, pitch e yaw**: inteiro com sinal, 1 unidade = 0,01°. Exemplo:
   `1500` = 15,00°; `-500` = −5,00°.
 - **Sentido positivo, como a página envia**: pitch positivo = joystick para a
-  frente; yaw positivo = joystick para a direita; roll positivo = deslizante
+  frente; yaw positivo = joystick para a direita; roll positivo = joystick
   para a direita. Se a convenção do PID for outra, cada eixo pode ser
   invertido nos ajustes da página, sem mexer no firmware.
 - **Throttle**: sem sinal, 0 = motores no mínimo.

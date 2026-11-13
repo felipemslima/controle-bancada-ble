@@ -1,5 +1,5 @@
 /**
- * @fileoverview Controles de toque: joystick, deslizante e botão de segurar.
+ * @fileoverview Controles de toque: joystick e botão de segurar.
  *
  * Todos são RELATIVOS ao ponto do primeiro toque: encostar o dedo nunca
  * produz valor; só o deslocamento produz. Assim um toque acidental fora do
@@ -17,20 +17,33 @@ function capturar(elemento, evento) {
 }
 
 /**
- * Joystick de dois eixos com retorno ao centro.
+ * Joystick de dois eixos.
+ *
+ * Por padrão os dois eixos voltam ao centro ao soltar. Com `retornaY: false`
+ * o eixo vertical fica onde foi solto (como o acelerador de um rádio) e
+ * começa embaixo (-1), não no centro.
  *
  * @param {HTMLElement} elemento base; precisa conter um filho `.pino`
- * @param {function(number, number): void} aoMudar (x, y) em -1..1; y para cima
- * @return {{reiniciar: function(): void}}
+ * @param {Object} opcoes
+ * @param {function(number, number): void} opcoes.aoMudar
+ *     (x, y) em -1..1; y positivo é para cima
+ * @param {boolean=} opcoes.retornaY false: o eixo y não volta ao soltar
+ * @return {{reiniciar: function(): void, habilitarY: function(boolean): void}}
  */
-export function criarJoystick(elemento, aoMudar) {
+export function criarJoystick(elemento, { aoMudar, retornaY = true }) {
   const pino = elemento.querySelector('.pino');
+  const repouso = retornaY ? 0 : -1;
   let ponteiro = null;
   let origem = { x: 0, y: 0 };
+  let x = 0;
+  let y = repouso;
+  let yBase = repouso;
+  let yHabilitado = true;
 
   const raio = () => Math.max(1, (elemento.clientWidth - pino.offsetWidth) / 2);
+  const limitar = (v) => Math.min(1, Math.max(-1, v));
 
-  function mostrar(x, y) {
+  function mostrar() {
     pino.style.transform = `translate(${x * raio()}px, ${-y * raio()}px)`;
     elemento.classList.toggle('ativo', ponteiro !== null);
   }
@@ -40,98 +53,39 @@ export function criarJoystick(elemento, aoMudar) {
     evento.preventDefault();
     ponteiro = evento.pointerId;
     origem = { x: evento.clientX, y: evento.clientY };
+    yBase = y;
     capturar(elemento, evento);
-    mostrar(0, 0);
+    mostrar();
   });
 
   elemento.addEventListener('pointermove', (evento) => {
     if (evento.pointerId !== ponteiro) return;
-    let x = (evento.clientX - origem.x) / raio();
-    let y = -(evento.clientY - origem.y) / raio();
-    const modulo = Math.hypot(x, y);
-    if (modulo > 1) {
-      x /= modulo;
-      y /= modulo;
+    let dx = (evento.clientX - origem.x) / raio();
+    let dy = -(evento.clientY - origem.y) / raio();
+    if (retornaY) {
+      // Os dois eixos voltam ao centro: limita ao círculo.
+      const modulo = Math.hypot(dx, dy);
+      if (modulo > 1) {
+        dx /= modulo;
+        dy /= modulo;
+      }
+      x = dx;
+      y = dy;
+    } else {
+      x = limitar(dx);
+      if (yHabilitado) y = limitar(yBase + dy);
     }
-    mostrar(x, y);
+    mostrar();
     aoMudar(x, y);
   });
 
   function soltar(evento) {
     if (evento.pointerId !== ponteiro) return;
     ponteiro = null;
-    mostrar(0, 0);
-    aoMudar(0, 0);
-  }
-  for (const tipo of ['pointerup', 'pointercancel', 'lostpointercapture']) {
-    elemento.addEventListener(tipo, soltar);
-  }
-
-  return {
-    /** Solta o controle sem emitir valor (o estado já foi zerado). */
-    reiniciar() {
-      ponteiro = null;
-      mostrar(0, 0);
-    },
-  };
-}
-
-/**
- * Deslizante de um eixo.
- *
- * @param {HTMLElement} elemento precisa conter um filho `.trilho`
- * @param {Object} opcoes
- * @param {boolean=} opcoes.vertical   true: para cima aumenta
- * @param {boolean=} opcoes.bipolar    true: -1..1; false: 0..1
- * @param {boolean=} opcoes.retorna    true: volta a zero ao soltar
- * @param {function(number): void} opcoes.aoMudar
- * @return {{reiniciar: function(): void, habilitar: function(boolean): void}}
- */
-export function criarDeslizante(
-    elemento, { vertical = false, bipolar = false, retorna = false, aoMudar }) {
-  const trilho = elemento.querySelector('.trilho');
-  const minimo = bipolar ? -1 : 0;
-  const curso = bipolar ? 2 : 1;
-  let valor = 0;
-  let ponteiro = null;
-  let origem = 0;
-  let base = 0;
-  let habilitado = true;
-
-  function mostrar() {
-    elemento.style.setProperty('--fracao', String((valor - minimo) / curso));
-    elemento.classList.toggle('ativo', ponteiro !== null);
-  }
-
-  elemento.addEventListener('pointerdown', (evento) => {
-    if (!habilitado || ponteiro !== null) return;
-    evento.preventDefault();
-    ponteiro = evento.pointerId;
-    origem = vertical ? evento.clientY : evento.clientX;
-    base = valor;
-    capturar(elemento, evento);
+    x = 0;
+    if (retornaY) y = 0;
     mostrar();
-  });
-
-  elemento.addEventListener('pointermove', (evento) => {
-    if (evento.pointerId !== ponteiro) return;
-    const comprimento =
-        Math.max(1, vertical ? trilho.clientHeight : trilho.clientWidth);
-    const deslocamento =
-        vertical ? origem - evento.clientY : evento.clientX - origem;
-    valor = Math.min(1, Math.max(minimo, base + (deslocamento / comprimento) * curso));
-    mostrar();
-    aoMudar(valor);
-  });
-
-  function soltar(evento) {
-    if (evento.pointerId !== ponteiro) return;
-    ponteiro = null;
-    if (retorna) {
-      valor = 0;
-      aoMudar(0);
-    }
-    mostrar();
+    aoMudar(x, y);
   }
   for (const tipo of ['pointerup', 'pointercancel', 'lostpointercapture']) {
     elemento.addEventListener(tipo, soltar);
@@ -139,16 +93,18 @@ export function criarDeslizante(
 
   mostrar();
   return {
-    /** Volta a zero sem emitir valor (o estado já foi zerado). */
+    /** Volta ao repouso sem emitir valor (o estado já foi zerado). */
     reiniciar() {
       ponteiro = null;
-      valor = 0;
+      x = 0;
+      y = repouso;
+      yBase = repouso;
       mostrar();
     },
-    habilitar(ligar) {
-      habilitado = ligar;
-      elemento.classList.toggle('desabilitado', !ligar);
-      if (!ligar) ponteiro = null;
+    /** Trava ou libera o eixo vertical (só vale com `retornaY: false`). */
+    habilitarY(ligar) {
+      yHabilitado = ligar;
+      elemento.classList.toggle('y-desabilitado', !ligar);
     },
   };
 }

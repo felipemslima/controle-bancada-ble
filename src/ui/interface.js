@@ -8,7 +8,7 @@
 import { CONFIG_PADRAO } from '../dominio/config.js';
 import { Acao, Conexao, comandoDeSaida, podeArmar } from '../dominio/estado.js';
 import { paraHex } from '../dominio/protocolo.js';
-import { criarBotaoDeSegurar, criarDeslizante, criarJoystick } from './controles.js';
+import { criarBotaoDeSegurar, criarJoystick } from './controles.js';
 
 const TEMPO_PARA_ARMAR_MS = 1000;
 const PERIODO_DEBUG_MS = 250;
@@ -42,18 +42,17 @@ export function montarInterface({
   const despachar = (tipo, extras) => loja.despachar({ tipo, ...extras });
 
   // --- Controles de voo -------------------------------------------------
-  const joystick = criarJoystick($('joystick'), (x, y) =>
-    despachar(Acao.EIXOS_ALTERADOS, { eixos: { yaw: x, pitch: y } }));
-  const roll = criarDeslizante($('roll'), {
-    bipolar: true,
-    retorna: true,
-    aoMudar: (valor) => despachar(Acao.EIXOS_ALTERADOS, { eixos: { roll: valor } }),
+  // Estilo "modo 2" de rádio: esquerdo = throttle e yaw; direito = pitch e roll.
+  const esquerdo = criarJoystick($('joystick-esquerdo'), {
+    retornaY: false,
+    aoMudar: (x, y) => despachar(Acao.EIXOS_ALTERADOS,
+        { eixos: { yaw: x, throttle: (y + 1) / 2 } }),
   });
-  const throttle = criarDeslizante($('throttle'), {
-    vertical: true,
-    aoMudar: (valor) => despachar(Acao.EIXOS_ALTERADOS, { eixos: { throttle: valor } }),
+  const direito = criarJoystick($('joystick-direito'), {
+    aoMudar: (x, y) => despachar(Acao.EIXOS_ALTERADOS,
+        { eixos: { roll: x, pitch: y } }),
   });
-  throttle.habilitar(false);
+  esquerdo.habilitarY(false); // throttle só funciona armado
 
   // --- Armar, desarmar e PARAR -----------------------------------------
   criarBotaoDeSegurar($('botao-armar'), {
@@ -203,11 +202,10 @@ export function montarInterface({
 
   loja.assinar((novo, anterior) => {
     if (novo.geracaoDeControles !== anterior.geracaoDeControles) {
-      joystick.reiniciar();
-      roll.reiniciar();
-      throttle.reiniciar();
+      esquerdo.reiniciar();
+      direito.reiniciar();
     }
-    if (novo.armado !== anterior.armado) throttle.habilitar(novo.armado);
+    if (novo.armado !== anterior.armado) esquerdo.habilitarY(novo.armado);
     agendarDesenho();
   });
 

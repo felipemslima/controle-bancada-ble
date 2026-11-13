@@ -42,7 +42,7 @@ A regra de dependência aponta para dentro: `ui` e `adaptadores` dependem de `ap
 | `src/adaptadores/ble-web.js` | `Enlace` sobre `navigator.bluetooth`. | nada do projeto |
 | `src/adaptadores/enlace-simulado.js` | `Enlace` falso (`?simular`): aceita comandos e devolve telemetria. | `dominio/protocolo.js` |
 | `src/adaptadores/navegador.js` | Ciclo de vida da página, wake lock e `localStorage`. | nada do projeto |
-| `src/ui/controles.js` | Joystick, deslizante e botão de segurar. Só conhecem o DOM. | nada do projeto |
+| `src/ui/controles.js` | Joystick de dois eixos e botão de segurar. Só conhecem o DOM. | nada do projeto |
 | `src/ui/interface.js` | Liga o DOM à loja: despacha ações e desenha o estado. Recebe loja, gerenciador e transmissor por injeção. | `dominio/`, `controles.js`, tipos de `aplicacao/` |
 | `firmware/rc_protocolo.h`, `.c` | Parser, CRC e regras de segurança do lado da controladora. | só `<stdint.h>` e `<stdbool.h>` |
 
@@ -98,7 +98,7 @@ Na página:
 3. **Segunda barreira** (`dominio/protocolo.js`, `codificarComando`): comando desarmado ou de parada sempre sai com roll, pitch, yaw e throttle em zero, mesmo que quem chama erre.
 4. **Transmissor sem fila e com envio imediato ao desarmar** (`aplicacao/transmissor.js`): só há uma escrita em andamento; ticks que chegam com ela pendente são descartados. Ao desarmar, o pacote zerado sai logo, ou logo após a escrita pendente, e sempre depois de qualquer valor antigo.
 5. **Watchdog de escrita** (`aplicacao/transmissor.js`): se uma escrita passa de 1 s (`LIMITE_ESCRITA_MS`), o enlace é desconectado e o failsafe do firmware assume.
-6. **Controles relativos ao ponto de toque** (`ui/controles.js`): encostar o dedo nunca gera valor, só o deslocamento. O throttle fica desabilitado enquanto desarmado.
+6. **Controles relativos ao ponto de toque** (`ui/controles.js`): encostar o dedo nunca gera valor, só o deslocamento. O eixo do throttle (vertical do joystick esquerdo) fica travado enquanto desarmado.
 7. **Segurar para armar** (`ui/controles.js` e `ui/interface.js`): armar exige manter o botão pressionado por 1 s. Armado, um toque desarma. Além do botão PARAR, as teclas Esc e Espaço também disparam `PARAR`.
 8. **Perda de foco** (`adaptadores/navegador.js`): página oculta, suspensa, fechada ou sem foco despacha `FOCO_PERDIDO`, porque no iOS não há execução em segundo plano.
 
@@ -139,7 +139,7 @@ O protocolo existe em duas implementações que precisam ficar iguais.
 1. Novo eixo ou valor de estado: acrescente o campo em `Eixos` e em `EIXOS_ZERADOS` (`dominio/estado.js`) e a saturação dele em `EIXOS_ALTERADOS`. Se o controle gera uma ação nova, acrescente-a a `Acao` e um `case` no redutor.
 2. Regra de segurança: decida no redutor se o novo valor desarma ou bloqueia o armar (ajuste `podeArmar` se preciso). Nunca decida isso na UI.
 3. Saída: se o valor deve ir para o rádio, inclua-o em `comandoDeSaida`, que continua sendo o único ponto de saída, e então siga o roteiro do caso 2.
-4. Componente de toque: use ou acrescente uma função em `ui/controles.js`. Ela só conhece o DOM, deve ser relativa ao ponto de toque e deve expor `reiniciar()`, que `interface.js` chama quando `geracaoDeControles` muda.
+4. Componente de toque: use ou acrescente uma função em `ui/controles.js` (o `criarJoystick` já aceita um eixo vertical que não volta ao soltar, como o throttle). Ela só conhece o DOM, deve ser relativa ao ponto de toque e deve expor `reiniciar()`, que `interface.js` chama quando `geracaoDeControles` muda.
 5. Em `index.html` e `css/`, acrescente o elemento; em `ui/interface.js`, despache a ação e desenhe o novo valor em `desenhar()`.
 6. Teste o redutor e `comandoDeSaida` com `node --test`, sem navegador.
 

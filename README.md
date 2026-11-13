@@ -21,11 +21,12 @@ resposta do PID com o protótipo preso na bancada.
 2. Toque em **Conectar** e escolha o módulo BLE na lista.
 3. Com todos os controles soltos, **segure** o botão de armar por 1 segundo.
 4. Controle:
-   - **Joystick**: para cima e para baixo é pitch; para os lados é yaw.
-     Volta ao centro ao soltar.
-   - **Roll**: deslizante horizontal. Volta ao centro ao soltar.
-   - **Throttle**: deslizante vertical. Fica onde foi solto e só funciona
-     armado.
+   - **Joystick esquerdo**: para cima e para baixo é throttle; para os
+     lados é yaw. O yaw volta ao centro ao soltar. O throttle fica onde foi
+     solto, começa embaixo (0 %) e só funciona armado.
+   - **Joystick direito**: para cima e para baixo é pitch; para os lados é
+     roll. Os dois voltam ao centro ao soltar.
+   - Para armar, o joystick esquerdo precisa estar com o throttle embaixo.
 5. **PARAR** zera tudo e desarma na hora. No PC, as teclas Esc e Espaço fazem
    o mesmo. Um toque no botão de armar, quando armado, desarma.
 
@@ -48,7 +49,7 @@ Só abrem com a página desarmada. Ficam salvos no navegador.
 | Ângulo máximo de roll/pitch | 15° | 1 a 30° |
 | Modo do yaw | taxa (°/s) | Ou ângulo. Tem de combinar com o PID do firmware |
 | Taxa máxima de yaw | 45 °/s | Só no modo taxa |
-| Teto do throttle | 30 % | Valor enviado com o deslizante no máximo |
+| Teto do throttle | 30 % | Valor enviado com o joystick no máximo |
 | Inverter roll / pitch / yaw | desligado | Troca o sinal do eixo |
 
 ### Painel de debug

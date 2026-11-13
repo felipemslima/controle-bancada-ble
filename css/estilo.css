@@ -20,7 +20,7 @@
   --perigo-escuro: #a8161b;
 
   --pino: 44px;
-  --pino-joystick: 68px;
+  --pino-joystick: 60px;
   --raio: 12px;
 
   --fonte: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
@@ -190,15 +190,11 @@ body[data-conexao="conectado"] .selo-conexao { border-color: var(--ok); color: v
   flex: 1;
   min-height: 160px;
   display: grid;
-  grid-template-columns: 84px minmax(0, 1fr);
-  grid-template-rows: minmax(0, 1fr) auto;
-  grid-template-areas:
-    "throttle joystick"
-    "throttle roll";
-  gap: 8px 10px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
 }
 
-#joystick, #roll, #throttle, .botao-armar, .botao-parar {
+.joystick, .botao-armar, .botao-parar, .botao-armar, .botao-parar {
   touch-action: none;
   user-select: none;
   -webkit-user-select: none;
@@ -221,7 +217,6 @@ body[data-conexao="conectado"] .selo-conexao { border-color: var(--ok); color: v
  * (unidades cqw/cqh), então nunca fica achatado nem estoura a altura.
  */
 .area-joystick {
-  grid-area: joystick;
   min-width: 0;
   min-height: 0;
   display: grid;
@@ -261,94 +256,12 @@ body[data-conexao="conectado"] .selo-conexao { border-color: var(--ok); color: v
   border: 3px solid var(--texto);
   z-index: 1;
 }
-.rotulo-pitch { top: 10px; left: 50%; transform: translateX(-50%); }
-.rotulo-yaw { right: 12px; top: 50%; margin-top: 8px; }
+.rotulo-cima { top: 10px; left: 50%; transform: translateX(-50%); }
+.rotulo-lado { right: 12px; top: 50%; margin-top: 8px; }
 
-/* Deslizantes: trilho com tamanho real, pino de 44px. */
-.deslizante {
-  position: relative;
-  border-radius: var(--raio);
-  background: var(--superficie);
-  border: 2px solid var(--borda);
-}
-.deslizante.ativo { border-color: var(--destaque); }
-.deslizante .trilho {
-  position: absolute;
-  border-radius: 8px;
-  background: var(--superficie-alta);
-  border: 1px solid var(--borda);
-}
-.deslizante .pino {
-  position: absolute;
-  width: var(--pino);
-  height: var(--pino);
-  border-radius: 50%;
-  background: var(--destaque);
-  border: 3px solid var(--texto);
-  z-index: 1;
-}
-
-/* Roll: horizontal, bipolar. */
-.deslizante-horizontal {
-  grid-area: roll;
-  height: 68px;
-}
-.deslizante-horizontal .trilho {
-  left: 28px;
-  right: 28px;
-  top: 50%;
-  height: 14px;
-  margin-top: -7px;
-}
-.deslizante-horizontal .trilho::before { /* marca do centro */
-  content: "";
-  position: absolute;
-  left: 50%;
-  top: -9px;
-  bottom: -9px;
-  width: 3px;
-  margin-left: -1.5px;
-  background: var(--texto-suave);
-}
-.deslizante-horizontal .pino {
-  top: 50%;
-  margin-top: calc(var(--pino) / -2);
-  left: calc(var(--fracao, 0.5) * 100%);
-  transform: translateX(-50%);
-}
-.deslizante-horizontal .rotulo-controle { left: 10px; top: 4px; }
-
-/* Throttle: vertical, unipolar. */
-.deslizante-vertical {
-  grid-area: throttle;
-  min-height: 160px;
-}
-.deslizante-vertical .trilho {
-  top: 30px;
-  bottom: 30px;
-  left: 50%;
-  width: 16px;
-  margin-left: -8px;
-  overflow: visible;
-}
-.deslizante-vertical .nivel {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  height: calc(var(--fracao, 0) * 100%);
-  border-radius: 8px;
-  background: var(--ok);
-}
-.deslizante-vertical .pino {
-  left: 50%;
-  margin-left: calc(var(--pino) / -2);
-  bottom: calc(var(--fracao, 0) * 100%);
-  transform: translateY(50%);
-}
-.deslizante-vertical .rotulo-controle { left: 50%; top: 6px; transform: translateX(-50%); }
-
-.deslizante.desabilitado { opacity: 0.35; }
+/* Acelerador: o eixo vertical não volta ao centro; destaque enquanto travado. */
+.joystick-acelerador.y-desabilitado { border-style: dashed; }
+.joystick-acelerador.y-desabilitado .pino { opacity: 0.5; }
 
 /* --- 6. Debug ----------------------------------------------------------- */
 .debug {
@@ -538,14 +451,8 @@ body.armado .botao-armar {
 
   .controles {
     min-height: 0;
-    grid-template-columns: 76px minmax(0, 1fr) minmax(120px, 34%);
-    grid-template-rows: minmax(0, 1fr);
-    grid-template-areas: "throttle joystick roll";
-    align-items: stretch;
     padding-bottom: 6px;
   }
-  .deslizante-horizontal { align-self: center; }
-  .deslizante-vertical { min-height: 0; }
 }
 
 /* --- 10. Retrato com pouca altura (iPhone SE, barras do navegador) ------ */
@@ -557,8 +464,6 @@ body.armado .botao-armar {
   .firmware { display: none; }
   .debug { display: none; }
   .controles { min-height: 0; }
-  .deslizante-vertical { min-height: 0; }
-  .deslizante-horizontal { height: 56px; }
   .botao-armar { min-height: 48px; }
   .botao-parar { min-height: 68px; }
 }
