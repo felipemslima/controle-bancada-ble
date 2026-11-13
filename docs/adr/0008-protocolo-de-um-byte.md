@@ -1,6 +1,6 @@
 # 0008. Protocolo de um byte
 
-- Status: Aceito
+- Status: Aceito; valores dos bytes e faixa substituídos pelo [ADR 0009](0009-bytes-especiais-e-centro-do-firmware.md)
 - Data: 2026-11-13
 
 Substitui o [ADR 0005](0005-protocolo-binario-de-15-bytes.md).

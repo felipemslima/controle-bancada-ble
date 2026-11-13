@@ -39,3 +39,5 @@ Alternativa rejeitada: fila de envio. Com ela, valores antigos ainda sairiam dep
 ## Atualização (ADR 0008)
 
 Com o [protocolo de um byte](0008-protocolo-de-um-byte.md), algumas regras acima deixaram de existir. No firmware não há mais trava de parada, armar só com zeros, limites de saturação por campo nem checagem de sequência. Também não há flags nem CRC. O receptor agora ignora posições antes do `0xF0`, obedece `0xFF` sempre e desconecta por timeout de 250 ms, e depois disso ignora posições até um novo `0xF0`. Na página, `codificarComando()` não zera mais os valores; o byte `0xFF` sai de `comandoDeSaida()` sempre que a página não está armada ou está em parada, e não há mais telemetria de failsafe. O princípio (várias barreiras, firmware como última) e o restante da página continuam valendo.
+
+Os valores dos bytes citados acima mudaram no [ADR 0009](0009-bytes-especiais-e-centro-do-firmware.md): conectar passou a ser `0xFF` e desconectar/parar passou a ser `0x00`. As regras continuam as mesmas, com os bytes novos.

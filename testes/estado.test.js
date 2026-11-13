@@ -19,7 +19,7 @@ const armar = { tipo: Acao.ARMAR };
 const mover = (eixos) => ({ tipo: Acao.EIXOS_ALTERADOS, eixos });
 const enviado = (comando) => ({ tipo: Acao.PACOTE_ENVIADO, comando });
 
-/** Arma e já consome os 0xF0 iniciais. */
+/** Arma e já consome os 0xFF (conectar) iniciais. */
 function armado() {
   let e = aplicar(estadoInicial(), conectar, armar);
   for (let i = 0; i < PACOTES_DE_INICIO; i++) e = reduzir(e, enviado(Tipo.CONECTAR));
@@ -86,7 +86,7 @@ test('PARAR zera, desarma e manda parar por N pacotes', () => {
   assert.equal(reduzir(e, armar).armado, true);
 });
 
-test('PARAR durante os 0xF0 iniciais cancela o início', () => {
+test('PARAR durante os 0xFF (conectar) iniciais cancela o início', () => {
   const e = aplicar(estadoInicial(), conectar, armar, { tipo: Acao.PARAR });
   assert.equal(e.inicioRestante, 0);
   assert.equal(comandoDeSaida(e).tipo, Tipo.DESCONECTAR);

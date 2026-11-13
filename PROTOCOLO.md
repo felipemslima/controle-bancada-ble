@@ -1,8 +1,9 @@
 # Protocolo do controle remoto
 
 Especificação do enlace entre a página de controle e a controladora.
-Versão 2 (protocolo de um byte; substitui o pacote de 15 bytes, ver o
-[ADR 0008](docs/adr/0008-protocolo-de-um-byte.md)).
+Versão 3 (protocolo de um byte; substitui o pacote de 15 bytes, ver o
+[ADR 0008](docs/adr/0008-protocolo-de-um-byte.md); os valores dos bytes e a
+faixa vêm do [ADR 0009](docs/adr/0009-bytes-especiais-e-centro-do-firmware.md)).
 
 Este documento é para quem escreve o firmware. O código de referência está em
 [`firmware/rc_byte.h`](firmware/rc_byte.h) e
@@ -20,72 +21,79 @@ equivalente da página fica em
   → UART da controladora, 9600 baud, 8N1. O sentido é só página → firmware.
 - A página envia continuamente (30 Hz por padrão, ajustável de 10 a 50 Hz).
   Isso é o heartbeat: o firmware usa a chegada de bytes como sinal de vida.
-- Posição: pitch e roll são níveis inteiros de -7 a +7. O **significado em
-  graus** de cada nível (sugestão: 2° por nível, ou seja, ±14°) e o sentido
-  físico de cada eixo são definidos pelo firmware.
+- Posição: pitch e roll são níveis inteiros. O firmware aceita de -8 a +7 em
+  cada eixo; a página envia só de -7 a +7. O **significado em graus** de cada
+  nível (sugestão: 2° por nível) e o sentido físico de cada eixo são definidos
+  pelo firmware.
 
 ## 2. Bytes
 
 | Byte | Significado |
 |---|---|
-| `0xFF` | Desconectar / parar. Vale sempre. |
-| `0xF0` | Conectar (libera o controle). |
-| `0xF1` a `0xFE` | Reservados. O receptor ignora. |
-| Qualquer outro | Posição: nibble alto = pitch, nibble baixo = roll. |
+| `0xFF` | Conectar (libera o controle). |
+| `0x00` | Desconectar / parar. Vale sempre. |
+| `0x01` a `0xFE` | Posição: nibble alto = pitch, nibble baixo = roll. |
 
-Qualquer byte com um nibble `F` que não seja `0xF0` ou `0xFF` é reservado.
+Não há bytes reservados: todo byte tem significado. São 254 posições e 2
+especiais, os 256 valores possíveis.
 
-Na posição, cada nibble vai de 0 a 14, com **centro 7**:
+Na posição, cada nibble vai de 0 a 15, com **centro 8**:
 
-- nível = nibble − 7, de −7 a +7;
+- nível = nibble − 8, de −8 a +7 (é o que o firmware aceita);
 - nibble maior = para cima (pitch) e para a direita (roll);
-- `0x77` = parado (os dois eixos no centro).
+- `0x88` = parado (os dois eixos no centro).
 
-Como uma posição nunca usa o nibble `F`, nenhuma posição se confunde com
-conectar ou desconectar. Há 225 posições (15 × 15).
+A página só envia níveis de −7 a +7 (nibbles de 1 a 15), para que o joystick
+seja simétrico. Por isso ela nunca envia o nível −8 nem `0x00` como posição. O
+único canto que coincidiria com um especial é pitch +7 e roll +7 = `0xFF`; a
+página troca esse caso por `0xEE` (+6, +6). Na prática esse canto nem é
+alcançável, porque o joystick é circular (na diagonal máxima cada eixo chega a
+±5), mas a garantia está no código e nos testes.
 
 ### Exemplos
 
 | Byte | Mensagem |
 |---|---|
-| `0x77` | Posição: pitch 0, roll 0 (parado) |
-| `0xE7` | Posição: pitch +7, roll 0 |
-| `0x07` | Posição: pitch −7, roll 0 |
-| `0x7E` | Posição: pitch 0, roll +7 |
-| `0x70` | Posição: pitch 0, roll −7 |
-| `0xA4` | Posição: pitch +3, roll −3 |
-| `0xF0` | Conectar |
-| `0xFF` | Desconectar / parar |
+| `0x88` | Posição: pitch 0, roll 0 (parado) |
+| `0xF8` | Posição: pitch +7, roll 0 |
+| `0x18` | Posição: pitch −7, roll 0 |
+| `0x8F` | Posição: pitch 0, roll +7 |
+| `0x81` | Posição: pitch 0, roll −7 |
+| `0xB5` | Posição: pitch +3, roll −3 |
+| `0xEE` | Posição: pitch +6, roll +6 (o que a página manda no lugar de `0xFF`) |
+| `0x01` | Posição: pitch −8, roll −7 (válida para o firmware; a página não gera) |
+| `0xFF` | Conectar |
+| `0x00` | Desconectar / parar |
 
 ## 3. Sequência típica de uma sessão
 
 ```
-FF FF FF ...        página conectada ao módulo, desarmada (heartbeat)
-F0 F0 F0            usuário arma: três conectar
-77 77 77 A7 A7 ...  posições, na taxa configurada
-FF                  PARAR, perda de foco, tela bloqueada ou queda da conexão
-FF FF FF ... (10)   a página insiste antes de permitir rearmar
+00 00 00 ...        página conectada ao módulo, desarmada (heartbeat)
+FF FF FF            usuário arma: três conectar
+88 88 B8 ...        posições, na taxa configurada
+00                  PARAR, perda de foco, tela bloqueada ou queda da conexão
+00 00 00 ... (10)   a página insiste antes de permitir rearmar
 ```
 
 Notas:
 
-- O `0xF0` sai três vezes (`PACOTES_DE_INICIO`) para cobrir a perda de um byte
-  no rádio. O firmware deve tratar `0xF0` repetido como um só.
-- O primeiro byte de posição depois do conectar é `0x77`, porque a página só
+- O `0xFF` sai três vezes (`PACOTES_DE_INICIO`) para cobrir a perda de um byte
+  no rádio. O firmware deve tratar `0xFF` repetido como um só.
+- O primeiro byte de posição depois do conectar é `0x88`, porque a página só
   arma com o joystick solto.
 - Se a conexão BLE cair, não há como enviar nada; quem protege é o failsafe
   (seção 5.2).
 
 ## 4. O que a página garante
 
-1. Desarmada ou em parada, só sai `0xFF`.
-2. Ao armar, sai `0xF0` três vezes e só depois o byte de posição.
-3. Armar exige o joystick solto, então a primeira posição é `0x77`.
-4. Depois de um PARAR, a página envia 10 vezes `0xFF` antes de permitir
+1. Desarmada ou em parada, só sai `0x00`.
+2. Ao armar, sai `0xFF` três vezes e só depois o byte de posição.
+3. Armar exige o joystick solto, então a primeira posição é `0x88`.
+4. Depois de um PARAR, a página envia 10 vezes `0x00` antes de permitir
    rearmar.
 5. As escritas são seriais e sem fila: uma posição antiga nunca é escrita
-   depois de um `0xFF`.
-6. PARAR, perda de foco, tela bloqueada ou queda da conexão geram `0xFF`
+   depois de um `0x00`.
+6. PARAR, perda de foco, tela bloqueada ou queda da conexão geram `0x00`
    imediato (quando o enlace ainda permite).
 7. Uma escrita travada por mais de 1 s derruba a conexão.
 
@@ -98,19 +106,21 @@ enlace de rádio. A proteção de verdade é a da próxima seção.
 ### 5.1 Regras do receptor
 
 1. **Começar desconectado**, com pitch e roll em zero.
-2. **Ignorar posições antes do `0xF0`.** Também depois de um failsafe, até
-   chegar um novo `0xF0`.
-3. **`0xFF` sempre vale:** desconecta e zera, em qualquer estado.
-4. **`0xF0`** conecta com pitch e roll em zero. Repetido não muda nada.
-5. **Bytes reservados** são ignorados e **não contam como sinal de vida**.
+2. **Ignorar posições antes do `0xFF`.** Também depois de um failsafe, até
+   chegar um novo `0xFF`.
+3. **`0x00` sempre vale:** desconecta e zera, em qualquer estado.
+4. **`0xFF`** conecta com pitch e roll em zero. Repetido não muda nada.
+5. **Todo byte de `0x01` a `0xFE` é posição** e, estando conectado, conta como
+   sinal de vida. O nível −8 (nibble 0) pode ser tratado como −8 ou saturado
+   em −7, como o firmware preferir; a página nunca o envia.
 6. Definir os graus por nível e o sentido de cada eixo, e limitar o setpoint
    do PID a um valor seguro para a bancada.
 
 ### 5.2 Failsafe por timeout (obrigatório)
 
 Se o receptor está conectado e passam `RC_TIMEOUT_MS` (250 ms) sem nenhum byte
-aceito (posição, `0xF0` ou `0xFF`), ele desconecta e zera pitch e roll. Depois
-disso, posições são ignoradas até um novo `0xF0`. Isso cobre queda do Bluetooth,
+aceito (posição, `0xFF` ou `0x00`), ele desconecta e zera pitch e roll. Depois
+disso, posições são ignoradas até um novo `0xFF`. Isso cobre queda do Bluetooth,
 celular travado e página suspensa. Sem este item, não teste com hélices.
 
 O tempo de 250 ms foi pensado para 30 Hz (33 ms entre bytes, cerca de 7
@@ -126,25 +136,36 @@ ciclo, que o byte seguinte corrige. Se a UART se mostrar ruidosa, uma extensão
 possível é mandar cada byte seguido do seu complemento (`pos, ~pos`) e aceitar
 só pares coerentes. **Não está implementada.**
 
-### 5.4 Cuidado com o módulo BLE (texto do HM-10)
+### 5.4 Cuidados com ruído e com o módulo BLE
 
-O HM-10 pode escrever texto na UART por conta própria, como `OK+CONN` ao
-conectar e `OK+LOST` ao perder a conexão. Esses bytes são ASCII (`0x4F`,
-`0x4B`, `0x2B`...) e **caem na faixa de posição**. Antes do `0xF0`, o receptor
-os ignora. Mas se a mensagem chegar com o controle conectado, ela vira
-posições espúrias por um instante.
+Como todo byte tem significado, vale saber o que um byte espúrio faz:
+
+- **Ruído ou condição de break na UART** tende a gerar `0x00`, que agora é
+  desconectar. Um byte espúrio vai na direção segura.
+- **Um `0xFF` espúrio** (por exemplo, um pulso que pareça bit de início com a
+  linha ociosa em nível alto) seria lido como conectar. O efeito é limitado:
+  conectar só libera o controle com tudo no centro, e só posições que chegarem
+  depois movem o protótipo.
+- **Texto do HM-10.** O módulo pode escrever texto na UART por conta própria,
+  como `OK+CONN` ao conectar e `OK+LOST` ao perder a conexão. Esses bytes são
+  ASCII (`0x4F`, `0x4B`, `0x2B`...) e **caem na faixa de posição**. Antes do
+  `0xFF`, o receptor os ignora. Mas se a mensagem chegar com o controle
+  conectado, ela vira posições espúrias por um instante.
 
 Recomendação: desligar essas notificações no módulo (no HM-10, o comando AT
 `AT+NOTI0`). **É preciso confirmar o comando equivalente no módulo escolhido**
-(HC-08, JDY-23 etc.); o comportamento muda de um fabricante para outro.
+(HC-08, JDY-23 etc.); o comportamento muda de um fabricante para outro. O HC-05
+é Bluetooth Classic e não funciona com Web Bluetooth: use um módulo BLE
+(HM-10, HC-08, JDY-23).
 
 ## 6. Código de referência em C
 
 `firmware/rc_byte.h` e `rc_byte.c`: C99, só `<stdint.h>` e `<stdbool.h>`, sem
 alocação dinâmica.
 
-- `rc_decodificar(byte)`: traduz um byte, sem estado.
-- `rc_codificar_posicao(pitch, roll)`: monta o byte (níveis saturados).
+- `rc_decodificar(byte)`: traduz um byte, sem estado; devolve níveis de −8 a +7.
+- `rc_codificar_posicao(pitch, roll)`: monta o byte; satura em −7..+7 e troca
+  `0xFF` por `0xEE`.
 - `rc_receptor_processar(&r, byte, agora_ms)`: aplica as regras da seção 5.1;
   devolve `true` se o byte foi aceito.
 - `rc_receptor_tick(&r, agora_ms)`: aplica o timeout da seção 5.2.
@@ -186,15 +207,15 @@ Pontos de atenção:
 - `agora_ms` precisa ser monotônico; a volta em 32 bits é tratada.
 - Chame `rc_receptor_tick` com regularidade. Sem isso o failsafe não existe.
 - Se o hardware tem FIFO na UART, processe todos os bytes pendentes antes do
-  tick; a ordem dos bytes importa (um `0xFF` depois de posições deve vencer).
+  tick; a ordem dos bytes importa (um `0x00` depois de posições deve vencer).
 
 ## 7. Testes
 
 `npm test` roda os testes em JavaScript (protocolo, estado, transmissor e BLE
 com um mock) e compila com `gcc` o teste em C
 (`testes/firmware/teste_byte.c`). Há um teste cruzado: o mesmo conjunto de
-256 valores de byte é decodificado em JavaScript e em C, e os resultados têm
-de coincidir.
+256 valores de byte (254 posições e 2 especiais) é decodificado em JavaScript
+e em C, e os resultados têm de coincidir.
 
 **Não testado:** módulo BLE real, firmware real no RISC-V, Bluefy e iOS.
 
@@ -202,8 +223,7 @@ de coincidir.
 
 - Qualquer mudança no protocolo precisa ser feita ao mesmo tempo em
   `src/dominio/protocolo.js`, `firmware/rc_byte.c` e `.h`, neste documento e
-  nos testes. Se for incompatível, registre um ADR que substitua o 0008.
-- Os bytes `0xF1` a `0xFE` ficam reservados para extensões. O receptor atual os
-  ignora, então a página pode usá-los no futuro sem quebrar firmwares que
-  seguem esta especificação.
+  nos testes. Se for incompatível, registre um ADR que substitua o 0009.
+- Não sobra byte livre para extensões: os 256 valores já têm significado. Um
+  recurso novo (por exemplo, um terceiro eixo) pede um protocolo novo.
 - Detecção de erro na UART: ver a seção 5.3 (byte seguido do complemento).

@@ -6,7 +6,7 @@
  *     uma escrita pendente, ele é descartado.
  *  2. O byte é montado no instante do envio, a partir do estado atual.
  *     Nenhum valor antigo fica guardado esperando para sair.
- *  3. Ao desarmar (PARAR, perda de foco etc.), o 0xFF (desconectar) sai
+ *  3. Ao desarmar (PARAR, perda de foco etc.), o 0x00 (desconectar) sai
  *     imediatamente, ou logo após a escrita pendente terminar. Como as
  *     escritas são seriais, ele sempre chega DEPOIS de qualquer posição antiga.
  *  4. Se uma escrita travar, a conexão é derrubada; o failsafe por timeout

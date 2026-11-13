@@ -22,7 +22,6 @@ const TIPO_EM_C = {
   [Tipo.POSICAO]: 0,
   [Tipo.CONECTAR]: 1,
   [Tipo.DESCONECTAR]: 2,
-  [Tipo.RESERVADO]: 3,
 };
 
 let pasta;

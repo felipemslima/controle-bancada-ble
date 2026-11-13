@@ -74,10 +74,10 @@ Além das transições do diagrama, qualquer saída do estado `Conectado` desarm
 
 1. O dedo mexe no joystick de `ui/controles.js`, que chama `aoMudar(x, y)` com valores normalizados (-1 a 1; `y` positivo é para cima).
 2. `ui/interface.js` despacha `EIXOS_ALTERADOS` com `roll: x` e `pitch: y`. A loja aplica `reduzir` e guarda os eixos saturados.
-3. A cada tick do `transmissor` (30 Hz por padrão, configurável de 10 a 50), ele lê o estado atual e chama `comandoDeSaida(estado)`. Esse é o único ponto que decide o que vai para o rádio: desarmado ou em parada, `DESCONECTAR` (`0xFF`); logo após armar, `CONECTAR` (`0xF0`) três vezes; depois, a posição, com as inversões da configuração.
-4. `codificarComando(comando)` converte para um byte: `nivelDoEixo` arredonda cada eixo para -7 a +7 e `codificarPosicao` monta os nibbles (centro 7). Um tipo desconhecido vira `0xFF`.
+3. A cada tick do `transmissor` (30 Hz por padrão, configurável de 10 a 50), ele lê o estado atual e chama `comandoDeSaida(estado)`. Esse é o único ponto que decide o que vai para o rádio: desarmado ou em parada, `DESCONECTAR` (`0x00`); logo após armar, `CONECTAR` (`0xFF`) três vezes; depois, a posição, com as inversões da configuração.
+4. `codificarComando(comando)` converte para um byte: `nivelDoEixo` arredonda cada eixo para -7 a +7 e `codificarPosicao` monta os nibbles (centro 8; o canto +7/+7, que daria `0xFF`, vira `0xEE`). Um tipo desconhecido vira `0x00`.
 5. `enlace.escrever(bytes)` entrega ao adaptador (BLE ou simulado). O byte é montado no instante do envio; nada fica guardado esperando.
-6. Se a escrita deu certo, o transmissor despacha `PACOTE_ENVIADO`. Depois de um `PARAR`, isso consome o contador de 10 `0xFF` (`PACOTES_DE_PARADA`); depois de armar, o de 3 `0xF0` (`PACOTES_DE_INICIO`).
+6. Se a escrita deu certo, o transmissor despacha `PACOTE_ENVIADO`. Depois de um `PARAR`, isso consome o contador de 10 `0x00` (`PACOTES_DE_PARADA`); depois de armar, o de 3 `0xFF` (`PACOTES_DE_INICIO`).
 
 ## Sem telemetria
 
@@ -90,8 +90,8 @@ São barreiras em camadas. A página é a primeira; o firmware é a última e n�
 Na página:
 
 1. **Redutor puro** (`dominio/estado.js`): `podeArmar` só deixa armar conectado, sem parada em curso e com o joystick solto. Desarmar, `PARAR`, perda de foco e queda da conexão zeram os eixos e desarmam.
-2. **Ponto único de saída** (`dominio/estado.js`, `comandoDeSaida`): se não está armado ou está em parada, sai `0xFF`, não importa o que o joystick diga. Ao armar, saem três `0xF0` antes de qualquer posição.
-3. **Transmissor sem fila e com envio imediato ao desarmar** (`aplicacao/transmissor.js`): só há uma escrita em andamento; ticks que chegam com ela pendente são descartados. Ao desarmar, o `0xFF` sai logo, ou logo após a escrita pendente, e sempre depois de qualquer posição antiga.
+2. **Ponto único de saída** (`dominio/estado.js`, `comandoDeSaida`): se não está armado ou está em parada, sai `0x00`, não importa o que o joystick diga. Ao armar, saem três `0xFF` antes de qualquer posição.
+3. **Transmissor sem fila e com envio imediato ao desarmar** (`aplicacao/transmissor.js`): só há uma escrita em andamento; ticks que chegam com ela pendente são descartados. Ao desarmar, o `0x00` sai logo, ou logo após a escrita pendente, e sempre depois de qualquer posição antiga.
 4. **Watchdog de escrita** (`aplicacao/transmissor.js`): se uma escrita passa de 1 s (`LIMITE_ESCRITA_MS`), o enlace é desconectado e o failsafe do firmware assume.
 5. **Joystick relativo ao ponto de toque** (`ui/controles.js`): encostar o dedo nunca gera valor, só o deslocamento.
 6. **Segurar para armar** (`ui/controles.js` e `ui/interface.js`): armar exige manter o botão pressionado por 1 s. Armado, um toque desarma. Além do botão PARAR, as teclas Esc e Espaço também disparam `PARAR`.
@@ -99,11 +99,11 @@ Na página:
 
 No firmware (`firmware/rc_byte.c`, referência; o firmware real é do colega):
 
-1. **Posição antes de conectar é ignorada.** O receptor começa desconectado e só aceita posições depois de um `0xF0`.
-2. **`0xFF` sempre vale:** desconecta e zera, em qualquer estado.
-3. **Failsafe por timeout:** sem byte aceito por `RC_TIMEOUT_MS` (250 ms), `rc_receptor_tick` desconecta e zera, e posições são ignoradas até um novo `0xF0`. O chamador precisa invocar `rc_receptor_tick` periodicamente.
-4. **Bytes reservados** (`0xF1` a `0xFE` e qualquer um com nibble `F`) são ignorados e não contam como sinal de vida.
-5. **Limite de setpoint:** os graus por nível são definidos pelo firmware, que deve limitá-los a um valor seguro. Os níveis só vão de -7 a +7.
+1. **Posição antes de conectar é ignorada.** O receptor começa desconectado e só aceita posições depois de um `0xFF`.
+2. **`0x00` sempre vale:** desconecta e zera, em qualquer estado.
+3. **Failsafe por timeout:** sem byte aceito por `RC_TIMEOUT_MS` (250 ms), `rc_receptor_tick` desconecta e zera, e posições são ignoradas até um novo `0xFF`. O chamador precisa invocar `rc_receptor_tick` periodicamente.
+4. **Não há bytes reservados:** `0x01` a `0xFE` são sempre posição. O texto ASCII do HM-10 cai nessa faixa, por isso se recomenda desligar as notificações do módulo (`AT+NOTI0`).
+5. **Limite de setpoint:** os graus por nível são definidos pelo firmware, que deve limitá-los a um valor seguro. A página só envia níveis de -7 a +7; o firmware aceita de -8 a +7.
 
 Não há checksum. Um byte corrompido vira, no pior caso, uma posição errada por um ciclo. O HM-10 pode escrever texto (`OK+CONN`) na UART, que cai na faixa de posição; ver o cuidado em [PROTOCOLO.md](../PROTOCOLO.md), seção 5.4.
 
@@ -124,8 +124,8 @@ Caso típico: manter o HC-05 (Bluetooth Classic), que não funciona com Web Blue
 
 O protocolo existe em duas implementações que precisam ficar iguais.
 
-1. Atualize primeiro `PROTOCOLO.md`: bytes, significado e regras do receptor. Os bytes `0xF1` a `0xFE` estão reservados para extensões.
-2. JavaScript, em `src/dominio/protocolo.js`: constantes, `Tipo`, `codificarComando` e `decodificarByte`. Se há um tipo novo de comando, ajuste `Comando` e `comandoDeSaida` em `estado.js`, mantendo `0xFF` como saída quando desarmado.
+1. Atualize primeiro `PROTOCOLO.md`: bytes, significado e regras do receptor. Não há bytes livres para extensões (ver o [ADR 0009](adr/0009-bytes-especiais-e-centro-do-firmware.md)).
+2. JavaScript, em `src/dominio/protocolo.js`: constantes, `Tipo`, `codificarComando` e `decodificarByte`. Se há um tipo novo de comando, ajuste `Comando` e `comandoDeSaida` em `estado.js`, mantendo `0x00` como saída quando desarmado.
 3. C, em `firmware/rc_byte.h` e `.c`: `rc_decodificar`, `rc_codificar_posicao` e a regra de segurança em `rc_receptor_processar`.
 4. Atualize os testes: os de JavaScript com `node --test` e o de C em `testes/firmware/teste_byte.c`. O teste cruzado compara os 256 valores de byte nos dois lados.
 5. Mudou o protocolo de forma incompatível? Registre um ADR novo que substitua o 0008.

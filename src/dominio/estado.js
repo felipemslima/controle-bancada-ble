@@ -6,8 +6,8 @@
  * `comandoDeSaida` é o ÚNICO lugar que decide o que vai para o rádio.
  *
  * Correspondência com o protocolo de um byte (PROTOCOLO.md):
- *   desarmado ou em parada  -> 0xFF (desconectar), repetido como heartbeat
- *   acabou de armar         -> 0xF0 (conectar), PACOTES_DE_INICIO vezes
+ *   desarmado ou em parada  -> 0x00 (desconectar), repetido como heartbeat
+ *   acabou de armar         -> 0xFF (conectar), PACOTES_DE_INICIO vezes
  *   armado                  -> byte de posição (pitch e roll)
  */
 
@@ -32,12 +32,12 @@ export const Acao = Object.freeze({
   AVISO: 'aviso',
 });
 
-/** Quantos 0xFF precisam sair depois de um PARAR antes de poder rearmar. */
+/** Quantos 0x00 precisam sair depois de um PARAR antes de poder rearmar. */
 export const PACOTES_DE_PARADA = 10;
 
 /**
- * Quantas vezes o 0xF0 (conectar) é enviado ao armar. Repetir cobre a perda
- * de um byte no rádio; o firmware deve tratar 0xF0 repetido como um só.
+ * Quantas vezes o 0xFF (conectar) é enviado ao armar. Repetir cobre a perda
+ * de um byte no rádio; o firmware deve tratar 0xFF repetido como um só.
  */
 export const PACOTES_DE_INICIO = 3;
 
@@ -56,8 +56,8 @@ export const EIXOS_ZERADOS = Object.freeze({ roll: 0, pitch: 0 });
  * @property {string} conexao             um valor de Conexao
  * @property {boolean} armado
  * @property {Readonly<Eixos>} eixos
- * @property {number} paradaRestante      0xFF ainda a enviar após um PARAR
- * @property {number} inicioRestante      0xF0 ainda a enviar após armar
+ * @property {number} paradaRestante      0x00 ainda a enviar após um PARAR
+ * @property {number} inicioRestante      0xFF ainda a enviar após armar
  * @property {number} geracaoDeControles  muda quando a UI deve soltar os controles
  * @property {?string} motivoDesarme      por que desarmou da última vez
  * @property {?string} aviso              mensagem para o usuário
@@ -205,7 +205,7 @@ export function reduzir(estado, acao) {
 
 /**
  * O que deve ser transmitido AGORA. Único ponto de saída dos valores:
- * se não está armado, sai 0xFF (desconectar), não importa o que o joystick
+ * se não está armado, sai 0x00 (desconectar), não importa o que o joystick
  * diga.
  *
  * @param {Estado} estado

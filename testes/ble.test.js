@@ -119,7 +119,7 @@ test('integração: conectar, armar e enviar chega ao módulo', async () => {
     await assentar();
   }
   assert.deepEqual(mock.escritas.map((b) => b[0]),
-      [...Array(PACOTES_DE_INICIO).fill(0xf0), 0xe7]);
+      [...Array(PACOTES_DE_INICIO).fill(0xff), 0xf8]);
 });
 
 test('integração: cancelar o seletor volta a desconectado com aviso', async () => {
@@ -150,7 +150,7 @@ test('integração: queda desarma; a reconexão automática não rearma', async 
   const antes = mock.escritas.length;
   transmissor.tick();
   await assentar();
-  assert.deepEqual([...mock.escritas[antes]], [0xff], 'volta mandando parar');
+  assert.deepEqual([...mock.escritas[antes]], [0x00], 'volta mandando parar');
 });
 
 test('integração: reconexão desiste depois das tentativas', async () => {
@@ -211,5 +211,5 @@ test('integração: escrita lenta + PARAR não deixa valor antigo sair depois', 
   assert.deepEqual(mensagens[0], { tipo: 'posicao', pitch: 7, roll: 0 },
       'a escrita já entregue ao rádio sai primeiro');
   assert.ok(mensagens.slice(1).every((m) => m.tipo === 'desconectar'),
-      'depois dela, só 0xFF');
+      'depois dela, só 0x00');
 });

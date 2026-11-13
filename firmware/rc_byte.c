@@ -16,8 +16,6 @@ rc_mensagem_t rc_decodificar(uint8_t byte)
         m.tipo = RC_MSG_CONECTAR;
     } else if (byte == RC_BYTE_DESCONECTAR) {
         m.tipo = RC_MSG_DESCONECTAR;
-    } else if (alto == 0x0Fu || baixo == 0x0Fu) {
-        m.tipo = RC_MSG_RESERVADO;
     } else {
         m.tipo = RC_MSG_POSICAO;
         m.pitch = (int8_t)((int)alto - RC_CENTRO);
@@ -38,7 +36,8 @@ static uint8_t nibble(int8_t nivel)
 
 uint8_t rc_codificar_posicao(int8_t pitch, int8_t roll)
 {
-    return (uint8_t)((uint8_t)(nibble(pitch) << 4) | nibble(roll));
+    uint8_t byte = (uint8_t)((uint8_t)(nibble(pitch) << 4) | nibble(roll));
+    return byte == RC_BYTE_CONECTAR ? (uint8_t)0xEEu : byte;
 }
 
 static void desconectar(rc_receptor_t *r)
@@ -84,9 +83,6 @@ bool rc_receptor_processar(rc_receptor_t *r, uint8_t byte, uint32_t agora_ms)
         r->pitch = m.pitch;
         r->roll = m.roll;
         break;
-    default:
-        r->ignorados++;
-        return false;
     }
     r->ultimo_ms = agora_ms;
     return true;

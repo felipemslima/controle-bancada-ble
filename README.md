@@ -31,17 +31,17 @@ Endereço publicado: <https://felipemslima.github.io/controle-bancada-ble/>
 3. Com o joystick solto, **segure** o botão de armar por 1 segundo.
 4. Controle com o **joystick**: para cima e para baixo é **pitch**; para os
    lados é **roll**. Ele volta ao centro ao soltar. Para cima e para a direita
-   são níveis positivos. Cada eixo tem 7 níveis para cada lado (-7 a +7); os
-   graus de cada nível são definidos pelo firmware.
-5. **PARAR** desarma na hora e envia `0xFF`. No PC, as teclas Esc e Espaço
+   são níveis positivos. Cada eixo tem 7 níveis para cada lado (-7 a +7; o firmware
+   aceita até -8); os graus de cada nível são definidos pelo firmware.
+5. **PARAR** desarma na hora e envia `0x00`. No PC, as teclas Esc e Espaço
    fazem o mesmo. Um toque no botão de armar, quando armado, desarma.
 
 O joystick é relativo ao ponto em que o dedo encosta: encostar não gera
 comando, só arrastar.
 
-A página desarma e envia `0xFF` sozinha se a conexão cair, se a página perder
+A página desarma e envia `0x00` sozinha se a conexão cair, se a página perder
 o foco ou se a tela bloquear. Depois disso é preciso armar de novo. Depois de
-um PARAR, ela envia 10 `0xFF` antes de permitir rearmar.
+um PARAR, ela envia 10 `0x00` antes de permitir rearmar.
 
 ### Ajustes (engrenagem)
 

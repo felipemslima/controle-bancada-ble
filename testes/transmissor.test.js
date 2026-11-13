@@ -69,11 +69,11 @@ test('não envia nada enquanto desconectado', async () => {
   assert.equal(enlace.bytes.length, 0);
 });
 
-test('heartbeat desarmado: 0xFF a cada tick, mesmo sem mudança', async () => {
+test('heartbeat desarmado: 0x00 a cada tick, mesmo sem mudança', async () => {
   const { enlace, conectar, ticks } = montar();
   conectar();
   await ticks(5);
-  assert.deepEqual(enlace.bytes, [0xff, 0xff, 0xff, 0xff, 0xff]);
+  assert.deepEqual(enlace.bytes, [0x00, 0x00, 0x00, 0x00, 0x00]);
 });
 
 test('desarmado: joystick mexido nunca vira posição', async () => {
@@ -81,17 +81,17 @@ test('desarmado: joystick mexido nunca vira posição', async () => {
   conectar();
   mover({ roll: 1, pitch: 1 });
   await ticks(3);
-  assert.ok(enlace.bytes.every((b) => b === 0xff));
+  assert.ok(enlace.bytes.every((b) => b === 0x00));
 });
 
-test('ao armar: 0xF0 repetido e depois a posição atual', async () => {
+test('ao armar: 0xFF repetido e depois a posição atual', async () => {
   const { enlace, conectar, mover, despachar, ticks } = montar();
   conectar();
   despachar(Acao.ARMAR);
   mover({ pitch: 1, roll: -3 / 7 });
   await ticks(PACOTES_DE_INICIO + 2);
   assert.deepEqual(enlace.bytes,
-      [...Array(PACOTES_DE_INICIO).fill(0xf0), 0xe4, 0xe4]);
+      [...Array(PACOTES_DE_INICIO).fill(0xff), 0xf5, 0xf5]);
   assert.deepEqual(enlace.mensagens.at(-1), { tipo: Tipo.POSICAO, pitch: 7, roll: -3 });
 });
 
@@ -111,7 +111,7 @@ test('sem sobreposição: tick com escrita pendente é descartado', async () => 
   assert.equal(enlace.bytes.length, 2);
 });
 
-test('PARAR durante uma escrita pendente: o próximo byte é 0xFF', async () => {
+test('PARAR durante uma escrita pendente: o próximo byte é 0x00', async () => {
   const { transmissor, enlace, conectar, mover, despachar, ticks } = montar();
   conectar();
   despachar(Acao.ARMAR);
@@ -120,21 +120,21 @@ test('PARAR durante uma escrita pendente: o próximo byte é 0xFF', async () => 
   enlace.automatico = false;
   transmissor.tick(); // posição fica pendente no enlace
   await assentar();
-  assert.equal(enlace.bytes.at(-1), 0xe7);
+  assert.equal(enlace.bytes.at(-1), 0xf8);
 
   despachar(Acao.PARAR);
   await assentar();
-  assert.equal(enlace.bytes.at(-1), 0xe7, 'não escreve por cima da pendente');
+  assert.equal(enlace.bytes.at(-1), 0xf8, 'não escreve por cima da pendente');
 
-  enlace.liberar(); // a pendente termina: o 0xFF sai sem esperar o tick
+  enlace.liberar(); // a pendente termina: o 0x00 sai sem esperar o tick
   await assentar();
-  assert.equal(enlace.bytes.at(-1), 0xff);
+  assert.equal(enlace.bytes.at(-1), 0x00);
 
   const indiceParada = enlace.bytes.length - 1;
   enlace.automatico = true;
   enlace.liberar();
   await ticks(20);
-  assert.ok(enlace.bytes.slice(indiceParada).every((b) => b === 0xff),
+  assert.ok(enlace.bytes.slice(indiceParada).every((b) => b === 0x00),
       'nenhuma posição sai depois da parada');
 });
 
@@ -148,10 +148,10 @@ test('PARAR sem escrita pendente sai imediatamente, sem esperar o tick', async (
   despachar(Acao.PARAR);
   await assentar();
   assert.equal(enlace.bytes.length, antes + 1);
-  assert.equal(enlace.bytes.at(-1), 0xff);
+  assert.equal(enlace.bytes.at(-1), 0x00);
 });
 
-test('depois de PARAR: N bytes 0xFF antes de poder rearmar', async () => {
+test('depois de PARAR: N bytes 0x00 antes de poder rearmar', async () => {
   const { enlace, conectar, despachar, loja, ticks } = montar();
   conectar();
   despachar(Acao.ARMAR);
@@ -159,22 +159,22 @@ test('depois de PARAR: N bytes 0xFF antes de poder rearmar', async () => {
   await assentar();
   await ticks(PACOTES_DE_PARADA);
   assert.equal(loja.estado().paradaRestante, 0);
-  assert.ok(enlace.bytes.every((b) => b === 0xff));
+  assert.ok(enlace.bytes.every((b) => b === 0x00));
   despachar(Acao.ARMAR);
   assert.equal(loja.estado().armado, true);
 });
 
-test('perder o foco envia 0xFF na hora', async () => {
+test('perder o foco envia 0x00 na hora', async () => {
   const { enlace, conectar, mover, despachar, ticks } = montar();
   conectar();
   despachar(Acao.ARMAR);
   await ticks(PACOTES_DE_INICIO);
   mover({ pitch: -1 });
   await ticks(1);
-  assert.equal(enlace.bytes.at(-1), 0x07);
+  assert.equal(enlace.bytes.at(-1), 0x18);
   despachar(Acao.FOCO_PERDIDO);
   await assentar();
-  assert.equal(enlace.bytes.at(-1), 0xff);
+  assert.equal(enlace.bytes.at(-1), 0x00);
 });
 
 test('erro de escrita não trava o laço e é contado', async () => {
@@ -214,7 +214,7 @@ test('diagnóstico: taxa efetiva e último byte', async () => {
   }
   let d = transmissor.diagnostico();
   assert.equal(d.taxaHz, 30);
-  assert.deepEqual([...d.ultimoPacote], [0xff]);
+  assert.deepEqual([...d.ultimoPacote], [0x00]);
   relogio.ms = 5000;
   d = transmissor.diagnostico();
   assert.equal(d.taxaHz, 0);

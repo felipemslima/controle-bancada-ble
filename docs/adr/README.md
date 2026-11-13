@@ -20,4 +20,5 @@ Um ADR (Architecture Decision Record, formato de Michael Nygard) registra uma de
 | [0005](0005-protocolo-binario-de-15-bytes.md) | Protocolo binário de 15 bytes | Substituído pelo 0008 |
 | [0006](0006-modelo-de-seguranca.md) | Modelo de segurança | Aceito |
 | [0007](0007-convencoes-de-codigo.md) | Convenções de código | Aceito |
-| [0008](0008-protocolo-de-um-byte.md) | Protocolo de um byte | Aceito |
+| [0008](0008-protocolo-de-um-byte.md) | Protocolo de um byte | Aceito; valores dos bytes substituídos pelo 0009 |
+| [0009](0009-bytes-especiais-e-centro-do-firmware.md) | Bytes especiais e centro do firmware | Aceito |
