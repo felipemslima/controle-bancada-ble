@@ -83,6 +83,26 @@ python3 -m http.server 8000
 Abrir o `index.html` direto do disco não funciona, porque o navegador
 bloqueia módulos ES em `file://`.
 
+## Testador no PC (ver os bytes que o celular envia)
+
+`ferramentas/testador_ble.py` faz o PC se passar pela controladora: anuncia
+por BLE o mesmo serviço do HM-10 (`FFE0`/`FFE1`) e mostra no terminal cada
+byte que a página enviar, já decodificado (conectar, desconectar ou posição
+de pitch e roll). Ele também simula o receptor do firmware e avisa quando uma
+posição seria ignorada, quando a página viola uma garantia do protocolo
+(por exemplo, posição antes do `0xFF`) e quando passam mais de 250 ms sem
+byte, que é o momento em que o failsafe do firmware dispararia.
+
+```sh
+npm run testador                              # painel ao vivo
+python3 ferramentas/testador_ble.py --todos   # uma linha por byte
+python3 ferramentas/testador_ble.py --csv saida.csv
+```
+
+No celular, abra a página, toque em **Conectar** e escolha `Bancada-PC`.
+Requer Linux com BlueZ, `python3-dbus` e `python3-gi`; não instala nada.
+Não comanda motor algum. Testes do decodificador: `npm run test:ferramentas`.
+
 ## Testes
 
 Precisa de Node.js 22 ou mais novo e, para os testes do firmware, do `gcc`.

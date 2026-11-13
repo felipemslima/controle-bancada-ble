@@ -6,6 +6,8 @@
   "type": "module",
   "scripts": {
     "test": "node --test \"testes/*.test.js\"",
-    "servir": "python3 -m http.server 8000"
+    "servir": "python3 -m http.server 8000",
+    "testador": "python3 ferramentas/testador_ble.py",
+    "test:ferramentas": "python3 -I ferramentas/test_protocolo.py"
   }
 }
