@@ -17,33 +17,22 @@ function capturar(elemento, evento) {
 }
 
 /**
- * Joystick de dois eixos.
- *
- * Por padrão os dois eixos voltam ao centro ao soltar. Com `retornaY: false`
- * o eixo vertical fica onde foi solto (como o acelerador de um rádio) e
- * começa embaixo (-1), não no centro.
+ * Joystick de dois eixos com retorno ao centro.
  *
  * @param {HTMLElement} elemento base; precisa conter um filho `.pino`
  * @param {Object} opcoes
  * @param {function(number, number): void} opcoes.aoMudar
  *     (x, y) em -1..1; y positivo é para cima
- * @param {boolean=} opcoes.retornaY false: o eixo y não volta ao soltar
- * @return {{reiniciar: function(): void, habilitarY: function(boolean): void}}
+ * @return {{reiniciar: function(): void}}
  */
-export function criarJoystick(elemento, { aoMudar, retornaY = true }) {
+export function criarJoystick(elemento, { aoMudar }) {
   const pino = elemento.querySelector('.pino');
-  const repouso = retornaY ? 0 : -1;
   let ponteiro = null;
   let origem = { x: 0, y: 0 };
-  let x = 0;
-  let y = repouso;
-  let yBase = repouso;
-  let yHabilitado = true;
 
   const raio = () => Math.max(1, (elemento.clientWidth - pino.offsetWidth) / 2);
-  const limitar = (v) => Math.min(1, Math.max(-1, v));
 
-  function mostrar() {
+  function mostrar(x, y) {
     pino.style.transform = `translate(${x * raio()}px, ${-y * raio()}px)`;
     elemento.classList.toggle('ativo', ponteiro !== null);
   }
@@ -53,58 +42,38 @@ export function criarJoystick(elemento, { aoMudar, retornaY = true }) {
     evento.preventDefault();
     ponteiro = evento.pointerId;
     origem = { x: evento.clientX, y: evento.clientY };
-    yBase = y;
     capturar(elemento, evento);
-    mostrar();
+    mostrar(0, 0);
   });
 
   elemento.addEventListener('pointermove', (evento) => {
     if (evento.pointerId !== ponteiro) return;
-    let dx = (evento.clientX - origem.x) / raio();
-    let dy = -(evento.clientY - origem.y) / raio();
-    if (retornaY) {
-      // Os dois eixos voltam ao centro: limita ao círculo.
-      const modulo = Math.hypot(dx, dy);
-      if (modulo > 1) {
-        dx /= modulo;
-        dy /= modulo;
-      }
-      x = dx;
-      y = dy;
-    } else {
-      x = limitar(dx);
-      if (yHabilitado) y = limitar(yBase + dy);
+    let x = (evento.clientX - origem.x) / raio();
+    let y = -(evento.clientY - origem.y) / raio();
+    const modulo = Math.hypot(x, y);
+    if (modulo > 1) {
+      x /= modulo;
+      y /= modulo;
     }
-    mostrar();
+    mostrar(x, y);
     aoMudar(x, y);
   });
 
   function soltar(evento) {
     if (evento.pointerId !== ponteiro) return;
     ponteiro = null;
-    x = 0;
-    if (retornaY) y = 0;
-    mostrar();
-    aoMudar(x, y);
+    mostrar(0, 0);
+    aoMudar(0, 0);
   }
   for (const tipo of ['pointerup', 'pointercancel', 'lostpointercapture']) {
     elemento.addEventListener(tipo, soltar);
   }
 
-  mostrar();
   return {
-    /** Volta ao repouso sem emitir valor (o estado já foi zerado). */
+    /** Solta o controle sem emitir valor (o estado já foi zerado). */
     reiniciar() {
       ponteiro = null;
-      x = 0;
-      y = repouso;
-      yBase = repouso;
-      mostrar();
-    },
-    /** Trava ou libera o eixo vertical (só vale com `retornaY: false`). */
-    habilitarY(ligar) {
-      yHabilitado = ligar;
-      elemento.classList.toggle('y-desabilitado', !ligar);
+      mostrar(0, 0);
     },
   };
 }

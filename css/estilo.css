@@ -20,7 +20,7 @@
   --perigo-escuro: #a8161b;
 
   --pino: 44px;
-  --pino-joystick: 60px;
+  --pino-joystick: 72px;
   --raio: 12px;
 
   --fonte: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
@@ -176,22 +176,15 @@ body[data-conexao="conectado"] .selo-conexao { border-color: var(--ok); color: v
   white-space: nowrap;
   padding: 2px 0;
 }
-.linha-medido td { color: var(--destaque); }
+.valor-byte { font-family: var(--fonte-mono); }
 
-.firmware {
-  margin: 2px 0 0;
-  font-size: 12px;
-  color: var(--texto-suave);
-}
-.firmware span { color: var(--texto); font-weight: 600; }
 
 /* --- 5. Controles de toque --------------------------------------------- */
 .controles {
   flex: 1;
   min-height: 160px;
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .joystick, .botao-armar, .botao-parar, .botao-armar, .botao-parar {
@@ -258,10 +251,6 @@ body[data-conexao="conectado"] .selo-conexao { border-color: var(--ok); color: v
 }
 .rotulo-cima { top: 10px; left: 50%; transform: translateX(-50%); }
 .rotulo-lado { right: 12px; top: 50%; margin-top: 8px; }
-
-/* Acelerador: o eixo vertical não volta ao centro; destaque enquanto travado. */
-.joystick-acelerador.y-desabilitado { border-style: dashed; }
-.joystick-acelerador.y-desabilitado .pino { opacity: 0.5; }
 
 /* --- 6. Debug ----------------------------------------------------------- */
 .debug {
@@ -446,7 +435,6 @@ body.armado .botao-armar {
   .aviso { height: 1.3em; font-size: 12px; }
   .leituras { padding: 2px 8px; }
   .tabela-leituras td { font-size: 15px; padding: 0; }
-  .firmware { display: none; }
   .debug { display: none; }
 
   .controles {
@@ -461,7 +449,6 @@ body.armado .botao-armar {
   .aviso { height: 1.3em; font-size: 12px; }
   .leituras { padding: 2px 8px; }
   .tabela-leituras td { font-size: 15px; padding: 0; }
-  .firmware { display: none; }
   .debug { display: none; }
   .controles { min-height: 0; }
   .botao-armar { min-height: 48px; }

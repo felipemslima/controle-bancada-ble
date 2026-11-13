@@ -4,11 +4,9 @@ import { test } from 'node:test';
 import { criarLoja } from '../src/aplicacao/loja.js';
 import { LIMITE_ESCRITA_MS, criarTransmissor } from '../src/aplicacao/transmissor.js';
 import {
-  Acao, Conexao, PACOTES_DE_PARADA, estadoInicial, reduzir,
+  Acao, Conexao, PACOTES_DE_INICIO, PACOTES_DE_PARADA, estadoInicial, reduzir,
 } from '../src/dominio/estado.js';
-import {
-  FLAG_ARMADO, FLAG_PARADA, decodificarPacote,
-} from '../src/dominio/protocolo.js';
+import { Tipo, decodificarByte } from '../src/dominio/protocolo.js';
 import { assentar } from './apoio/mock-bluetooth.js';
 
 /**
@@ -18,13 +16,14 @@ import { assentar } from './apoio/mock-bluetooth.js';
 function criarEnlaceFalso({ automatico = true } = {}) {
   const enlace = {
     suportado: true,
-    escritas: [],
+    bytes: [],
     pendentes: [],
     desconexoes: 0,
     falhar: false,
     automatico,
-    escrever(bytes) {
-      enlace.escritas.push(decodificarPacote(bytes));
+    escrever(dados) {
+      assert.equal(dados.length, 1, 'cada escrita leva um byte');
+      enlace.bytes.push(dados[0]);
       if (enlace.falhar) return Promise.reject(new Error('falha de escrita'));
       if (enlace.automatico) return Promise.resolve();
       return new Promise((resolver) => enlace.pendentes.push(resolver));
@@ -39,6 +38,10 @@ function criarEnlaceFalso({ automatico = true } = {}) {
     async reconectar() {},
     aoReceber() {},
     aoDesconectar() {},
+    /** As mensagens como o firmware as leria. */
+    get mensagens() {
+      return enlace.bytes.map((b) => decodificarByte(b));
+    },
   };
   return enlace;
 }
@@ -51,62 +54,45 @@ function montar(opcoesDoEnlace) {
   const despachar = (tipo, extras) => loja.despachar({ tipo, ...extras });
   const conectar = () => despachar(Acao.CONEXAO_ALTERADA, { conexao: Conexao.CONECTADO });
   const mover = (eixos) => despachar(Acao.EIXOS_ALTERADOS, { eixos });
-  return { loja, enlace, relogio, transmissor, despachar, conectar, mover };
+  async function ticks(n) {
+    for (let i = 0; i < n; i++) {
+      transmissor.tick();
+      await assentar();
+    }
+  }
+  return { loja, enlace, relogio, transmissor, despachar, conectar, mover, ticks };
 }
 
-const armado = (p) => (p.flags & FLAG_ARMADO) !== 0;
-const parada = (p) => (p.flags & FLAG_PARADA) !== 0;
-const zerado = (p) => p.roll === 0 && p.pitch === 0 && p.yaw === 0 && p.throttle === 0;
-
 test('não envia nada enquanto desconectado', async () => {
-  const { transmissor, enlace } = montar();
-  transmissor.tick();
-  await assentar();
-  assert.equal(enlace.escritas.length, 0);
+  const { enlace, ticks } = montar();
+  await ticks(3);
+  assert.equal(enlace.bytes.length, 0);
 });
 
-test('heartbeat: envia a cada tick mesmo sem mudança, com sequência crescente', async () => {
-  const { transmissor, enlace, conectar } = montar();
+test('heartbeat desarmado: 0xFF a cada tick, mesmo sem mudança', async () => {
+  const { enlace, conectar, ticks } = montar();
   conectar();
-  for (let i = 0; i < 5; i++) {
-    transmissor.tick();
-    await assentar();
-  }
-  assert.deepEqual(enlace.escritas.map((p) => p.seq), [0, 1, 2, 3, 4]);
-  assert.ok(enlace.escritas.every((p) => !armado(p) && zerado(p)));
+  await ticks(5);
+  assert.deepEqual(enlace.bytes, [0xff, 0xff, 0xff, 0xff, 0xff]);
 });
 
-test('a sequência dá a volta de 255 para 0', async () => {
-  const { transmissor, enlace, conectar } = montar();
+test('desarmado: joystick mexido nunca vira posição', async () => {
+  const { enlace, conectar, mover, ticks } = montar();
   conectar();
-  for (let i = 0; i < 258; i++) {
-    transmissor.tick();
-    await assentar();
-  }
-  assert.deepEqual(enlace.escritas.slice(254).map((p) => p.seq), [254, 255, 0, 1]);
+  mover({ roll: 1, pitch: 1 });
+  await ticks(3);
+  assert.ok(enlace.bytes.every((b) => b === 0xff));
 });
 
-test('desarmado: controles mexidos nunca chegam ao rádio', async () => {
-  const { transmissor, enlace, conectar, mover } = montar();
-  conectar();
-  mover({ roll: 1, pitch: 1, yaw: 1, throttle: 1 });
-  transmissor.tick();
-  await assentar();
-  assert.ok(!armado(enlace.escritas[0]) && zerado(enlace.escritas[0]));
-});
-
-test('armado: os valores atuais vão no pacote', async () => {
-  const { transmissor, enlace, conectar, mover, despachar } = montar();
+test('ao armar: 0xF0 repetido e depois a posição atual', async () => {
+  const { enlace, conectar, mover, despachar, ticks } = montar();
   conectar();
   despachar(Acao.ARMAR);
-  mover({ pitch: 1, yaw: -1, throttle: 0.5 });
-  transmissor.tick();
-  await assentar();
-  const p = enlace.escritas[0];
-  assert.ok(armado(p));
-  assert.equal(p.pitch, 1500);
-  assert.equal(p.yaw, -4500);
-  assert.equal(p.throttle, 150);
+  mover({ pitch: 1, roll: -3 / 7 });
+  await ticks(PACOTES_DE_INICIO + 2);
+  assert.deepEqual(enlace.bytes,
+      [...Array(PACOTES_DE_INICIO).fill(0xf0), 0xe4, 0xe4]);
+  assert.deepEqual(enlace.mensagens.at(-1), { tipo: Tipo.POSICAO, pitch: 7, roll: -3 });
 });
 
 test('sem sobreposição: tick com escrita pendente é descartado', async () => {
@@ -116,81 +102,79 @@ test('sem sobreposição: tick com escrita pendente é descartado', async () => 
   transmissor.tick();
   transmissor.tick();
   await assentar();
-  assert.equal(enlace.escritas.length, 1);
+  assert.equal(enlace.bytes.length, 1);
   assert.equal(transmissor.diagnostico().descartados, 2);
   enlace.liberar();
   await assentar();
   transmissor.tick();
   await assentar();
-  assert.equal(enlace.escritas.length, 2);
+  assert.equal(enlace.bytes.length, 2);
 });
 
-test('PARAR durante uma escrita pendente: o próximo pacote é a parada', async () => {
-  const { transmissor, enlace, conectar, mover, despachar } = montar({ automatico: false });
+test('PARAR durante uma escrita pendente: o próximo byte é 0xFF', async () => {
+  const { transmissor, enlace, conectar, mover, despachar, ticks } = montar();
   conectar();
   despachar(Acao.ARMAR);
-  mover({ pitch: 1, throttle: 1 });
-  transmissor.tick(); // pacote com valores fica pendente no enlace
+  await ticks(PACOTES_DE_INICIO);
+  mover({ pitch: 1 });
+  enlace.automatico = false;
+  transmissor.tick(); // posição fica pendente no enlace
   await assentar();
-  assert.ok(armado(enlace.escritas[0]) && !zerado(enlace.escritas[0]));
+  assert.equal(enlace.bytes.at(-1), 0xe7);
 
   despachar(Acao.PARAR);
   await assentar();
-  assert.equal(enlace.escritas.length, 1, 'não escreve por cima da pendente');
+  assert.equal(enlace.bytes.at(-1), 0xe7, 'não escreve por cima da pendente');
 
-  enlace.liberar(); // a pendente termina: a parada sai sem esperar o tick
+  enlace.liberar(); // a pendente termina: o 0xFF sai sem esperar o tick
   await assentar();
-  assert.equal(enlace.escritas.length, 2);
-  assert.ok(parada(enlace.escritas[1]));
-  assert.ok(!armado(enlace.escritas[1]) && zerado(enlace.escritas[1]));
+  assert.equal(enlace.bytes.at(-1), 0xff);
 
-  // Daqui em diante nenhum pacote volta a ter valores ou a flag de armado.
+  const indiceParada = enlace.bytes.length - 1;
   enlace.automatico = true;
   enlace.liberar();
-  for (let i = 0; i < 20; i++) {
-    transmissor.tick();
-    await assentar();
-  }
-  const depois = enlace.escritas.slice(1);
-  assert.ok(depois.every((p) => !armado(p) && zerado(p)));
+  await ticks(20);
+  assert.ok(enlace.bytes.slice(indiceParada).every((b) => b === 0xff),
+      'nenhuma posição sai depois da parada');
 });
 
 test('PARAR sem escrita pendente sai imediatamente, sem esperar o tick', async () => {
-  const { enlace, conectar, mover, despachar } = montar();
+  const { enlace, conectar, mover, despachar, ticks } = montar();
   conectar();
   despachar(Acao.ARMAR);
+  await ticks(PACOTES_DE_INICIO + 1);
   mover({ roll: 1 });
+  const antes = enlace.bytes.length;
   despachar(Acao.PARAR);
   await assentar();
-  assert.equal(enlace.escritas.length, 1);
-  assert.ok(parada(enlace.escritas[0]) && zerado(enlace.escritas[0]));
+  assert.equal(enlace.bytes.length, antes + 1);
+  assert.equal(enlace.bytes.at(-1), 0xff);
 });
 
-test('a flag de parada vai em N pacotes e depois some', async () => {
-  const { transmissor, enlace, conectar, despachar, loja } = montar();
+test('depois de PARAR: N bytes 0xFF antes de poder rearmar', async () => {
+  const { enlace, conectar, despachar, loja, ticks } = montar();
   conectar();
   despachar(Acao.ARMAR);
   despachar(Acao.PARAR);
   await assentar();
-  for (let i = 0; i < PACOTES_DE_PARADA + 3; i++) {
-    transmissor.tick();
-    await assentar();
-  }
-  const comParada = enlace.escritas.filter(parada).length;
-  assert.equal(comParada, PACOTES_DE_PARADA);
-  assert.ok(!parada(enlace.escritas.at(-1)));
+  await ticks(PACOTES_DE_PARADA);
   assert.equal(loja.estado().paradaRestante, 0);
+  assert.ok(enlace.bytes.every((b) => b === 0xff));
+  despachar(Acao.ARMAR);
+  assert.equal(loja.estado().armado, true);
 });
 
-test('perder o foco envia o pacote desarmado na hora', async () => {
-  const { enlace, conectar, mover, despachar } = montar();
+test('perder o foco envia 0xFF na hora', async () => {
+  const { enlace, conectar, mover, despachar, ticks } = montar();
   conectar();
   despachar(Acao.ARMAR);
-  mover({ yaw: 1 });
+  await ticks(PACOTES_DE_INICIO);
+  mover({ pitch: -1 });
+  await ticks(1);
+  assert.equal(enlace.bytes.at(-1), 0x07);
   despachar(Acao.FOCO_PERDIDO);
   await assentar();
-  assert.equal(enlace.escritas.length, 1);
-  assert.ok(!armado(enlace.escritas[0]) && zerado(enlace.escritas[0]));
+  assert.equal(enlace.bytes.at(-1), 0xff);
 });
 
 test('erro de escrita não trava o laço e é contado', async () => {
@@ -220,7 +204,7 @@ test('escrita travada derruba o enlace', async () => {
   assert.equal(enlace.desconexoes, 1);
 });
 
-test('diagnóstico: taxa efetiva e último pacote', async () => {
+test('diagnóstico: taxa efetiva e último byte', async () => {
   const { transmissor, conectar, relogio } = montar();
   conectar();
   for (let i = 0; i < 30; i++) {
@@ -230,7 +214,7 @@ test('diagnóstico: taxa efetiva e último pacote', async () => {
   }
   let d = transmissor.diagnostico();
   assert.equal(d.taxaHz, 30);
-  assert.equal(d.ultimoPacote.length, 15);
+  assert.deepEqual([...d.ultimoPacote], [0xff]);
   relogio.ms = 5000;
   d = transmissor.diagnostico();
   assert.equal(d.taxaHz, 0);

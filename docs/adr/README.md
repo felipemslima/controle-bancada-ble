@@ -17,6 +17,7 @@ Um ADR (Architecture Decision Record, formato de Michael Nygard) registra uma de
 | [0002](0002-arquitetura-hexagonal.md) | Arquitetura hexagonal | Aceito |
 | [0003](0003-estado-unidirecional-com-redutor-puro.md) | Estado unidirecional com redutor puro | Aceito |
 | [0004](0004-sem-build-e-sem-dependencias.md) | Sem build e sem dependências | Aceito |
-| [0005](0005-protocolo-binario-de-15-bytes.md) | Protocolo binário de 15 bytes | Aceito |
+| [0005](0005-protocolo-binario-de-15-bytes.md) | Protocolo binário de 15 bytes | Substituído pelo 0008 |
 | [0006](0006-modelo-de-seguranca.md) | Modelo de segurança | Aceito |
 | [0007](0007-convencoes-de-codigo.md) | Convenções de código | Aceito |
+| [0008](0008-protocolo-de-um-byte.md) | Protocolo de um byte | Aceito |

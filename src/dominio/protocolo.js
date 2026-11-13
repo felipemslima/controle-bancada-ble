@@ -1,203 +1,113 @@
 /**
- * @fileoverview Protocolo binário entre o controle remoto e a controladora.
+ * @fileoverview Protocolo de um byte entre o controle e a controladora.
  *
  * Módulo puro (sem DOM, sem BLE). A especificação completa está em
- * PROTOCOLO.md; o equivalente em C está em firmware/rc_protocolo.c.
+ * PROTOCOLO.md; o equivalente em C está em firmware/rc_byte.c.
  * Qualquer mudança aqui precisa ser espelhada nos dois lugares.
+ *
+ * Cada byte é uma mensagem completa:
+ *   0xF0          conectar (libera o controle)
+ *   0xFF          desconectar / parar
+ *   0xF1 a 0xFE   reservados (o receptor ignora)
+ *   outros        posição: nibble alto = pitch, nibble baixo = roll,
+ *                 cada um de 0 a 14, com centro 7 (0x77 = parado)
+ *
+ * Como uma posição nunca usa o nibble 0xF, nenhuma posição pode ser
+ * confundida com conectar ou desconectar.
  */
 
-export const CABECALHO_0 = 0xa5;
-export const CABECALHO_1 = 0x5a;
-export const TAMANHO_PACOTE = 15;
+export const BYTE_CONECTAR = 0xf0;
+export const BYTE_DESCONECTAR = 0xff;
 
-export const TIPO_COMANDO = 0x01;
-export const TIPO_TELEMETRIA = 0x81;
+/** Valor do nibble que representa o centro do eixo. */
+export const CENTRO = 7;
 
-/** Flags (byte 4). Os bits 0 a 2 valem para comando e telemetria. */
-export const FLAG_ARMADO = 0x01;
-export const FLAG_PARADA = 0x02;
-export const FLAG_YAW_TAXA = 0x04;
-/** Só na telemetria: o firmware está em failsafe por timeout. */
-export const FLAG_FAILSAFE = 0x08;
+/** Níveis de cada lado do centro (posição de 0 a 14 no nibble). */
+export const NIVEIS_POR_LADO = 7;
 
-/** Limites de representação do protocolo (não são os limites de voo). */
-export const CENTI_MAX = 18000;
-export const THROTTLE_MAX = 1000;
+/** Byte de posição com os dois eixos no centro. */
+export const BYTE_PARADO = (CENTRO << 4) | CENTRO;
 
-/**
- * @typedef {Object} Pacote
- * @property {number} tipo
- * @property {number} seq
- * @property {number} flags
- * @property {number} roll     centésimos de grau
- * @property {number} pitch    centésimos de grau
- * @property {number} yaw      centésimos de grau (ou de °/s com FLAG_YAW_TAXA)
- * @property {number} throttle 0 a 1000 (décimos de %)
- */
-
-/**
- * CRC-16/CCITT-FALSE (polinômio 0x1021, valor inicial 0xFFFF, sem reflexão).
- * @param {ArrayLike<number>} bytes
- * @param {number=} inicio
- * @param {number=} fim exclusivo
- * @return {number}
- */
-export function crc16(bytes, inicio = 0, fim = bytes.length) {
-  let crc = 0xffff;
-  for (let i = inicio; i < fim; i++) {
-    crc ^= (bytes[i] & 0xff) << 8;
-    for (let bit = 0; bit < 8; bit++) {
-      crc = crc & 0x8000 ? ((crc << 1) ^ 0x1021) & 0xffff : (crc << 1) & 0xffff;
-    }
-  }
-  return crc;
-}
-
-function limitar(valor, minimo, maximo) {
-  if (!Number.isFinite(valor)) return 0;
-  return Math.min(maximo, Math.max(minimo, valor));
-}
-
-/** @param {number} graus @return {number} centésimos de grau, saturado */
-export function grausParaCenti(graus) {
-  return limitar(Math.round(graus * 100), -CENTI_MAX, CENTI_MAX);
-}
-
-/** @param {number} fracao 0 a 1 @return {number} 0 a 1000, saturado */
-export function fracaoParaThrottle(fracao) {
-  return limitar(Math.round(fracao * THROTTLE_MAX), 0, THROTTLE_MAX);
-}
-
-/**
- * Monta um pacote a partir dos campos já em unidades do protocolo.
- * @param {Pacote} pacote
- * @return {Uint8Array}
- */
-export function codificarPacote(pacote) {
-  const bytes = new Uint8Array(TAMANHO_PACOTE);
-  const visao = new DataView(bytes.buffer);
-  bytes[0] = CABECALHO_0;
-  bytes[1] = CABECALHO_1;
-  bytes[2] = pacote.tipo & 0xff;
-  bytes[3] = pacote.seq & 0xff;
-  bytes[4] = pacote.flags & 0xff;
-  visao.setInt16(5, pacote.roll, true);
-  visao.setInt16(7, pacote.pitch, true);
-  visao.setInt16(9, pacote.yaw, true);
-  visao.setUint16(11, pacote.throttle, true);
-  visao.setUint16(13, crc16(bytes, 2, 13), true);
-  return bytes;
-}
+export const Tipo = Object.freeze({
+  CONECTAR: 'conectar',
+  DESCONECTAR: 'desconectar',
+  POSICAO: 'posicao',
+  RESERVADO: 'reservado',
+});
 
 /**
  * @typedef {Object} Comando
- * @property {boolean} armado
- * @property {boolean} parada   parada de emergência
- * @property {boolean} yawTaxa  true: yaw em °/s; false: yaw em graus
- * @property {number} roll      graus
- * @property {number} pitch     graus
- * @property {number} yaw       graus ou °/s
- * @property {number} throttle  0 a 1
+ * @property {string} tipo  CONECTAR, DESCONECTAR ou POSICAO
+ * @property {number} pitch -1 a 1 (para cima positivo); só vale em POSICAO
+ * @property {number} roll  -1 a 1 (para a direita positivo); só vale em POSICAO
  */
 
 /**
- * Monta um pacote de comando a partir de unidades físicas.
- *
- * Segunda barreira de segurança: mesmo que quem chama erre, um comando
- * desarmado ou de parada SEMPRE sai com todos os valores em zero.
- *
+ * @typedef {Object} Mensagem
+ * @property {string} tipo  um valor de Tipo
+ * @property {number} pitch nível de -7 a 7 (0 fora de POSICAO)
+ * @property {number} roll  nível de -7 a 7 (0 fora de POSICAO)
+ */
+
+/**
+ * Converte a posição normalizada de um eixo no nível inteiro.
+ * @param {number} valor -1 a 1 (valores fora da faixa são saturados)
+ * @return {number} -7 a 7; NaN vira 0
+ */
+export function nivelDoEixo(valor) {
+  if (!Number.isFinite(valor)) return 0;
+  const nivel = Math.round(valor * NIVEIS_POR_LADO);
+  // `+ 0` evita o -0, que atrapalharia comparações e exibição.
+  return Math.min(NIVEIS_POR_LADO, Math.max(-NIVEIS_POR_LADO, nivel)) + 0;
+}
+
+/**
+ * Monta o byte de posição a partir dos níveis.
+ * @param {number} nivelPitch -7 a 7 (saturado)
+ * @param {number} nivelRoll  -7 a 7 (saturado)
+ * @return {number} 0x00 a 0xEE, nunca com nibble 0xF
+ */
+export function codificarPosicao(nivelPitch, nivelRoll) {
+  const nibble = (n) => CENTRO + Math.min(NIVEIS_POR_LADO,
+      Math.max(-NIVEIS_POR_LADO, Number.isFinite(n) ? Math.round(n) : 0));
+  return (nibble(nivelPitch) << 4) | nibble(nivelRoll);
+}
+
+/**
+ * Monta o byte a enviar.
  * @param {Comando} comando
- * @param {number} seq
- * @return {Uint8Array}
+ * @return {Uint8Array} um único byte
  */
-export function codificarComando(comando, seq) {
-  const parada = comando.parada === true;
-  const armado = comando.armado === true && !parada;
-  let flags = 0;
-  if (armado) flags |= FLAG_ARMADO;
-  if (parada) flags |= FLAG_PARADA;
-  if (comando.yawTaxa) flags |= FLAG_YAW_TAXA;
-  return codificarPacote({
-    tipo: TIPO_COMANDO,
-    seq,
-    flags,
-    roll: armado ? grausParaCenti(comando.roll) : 0,
-    pitch: armado ? grausParaCenti(comando.pitch) : 0,
-    yaw: armado ? grausParaCenti(comando.yaw) : 0,
-    throttle: armado ? fracaoParaThrottle(comando.throttle) : 0,
-  });
+export function codificarComando(comando) {
+  let byte;
+  if (comando.tipo === Tipo.POSICAO) {
+    byte = codificarPosicao(nivelDoEixo(comando.pitch), nivelDoEixo(comando.roll));
+  } else if (comando.tipo === Tipo.CONECTAR) {
+    byte = BYTE_CONECTAR;
+  } else {
+    // Qualquer tipo desconhecido vira o byte seguro.
+    byte = BYTE_DESCONECTAR;
+  }
+  return Uint8Array.of(byte);
 }
 
 /**
- * Lê um pacote completo. Devolve null se o cabeçalho ou o CRC não conferem.
- * @param {ArrayLike<number>} bytes pelo menos TAMANHO_PACOTE bytes
- * @return {?Pacote}
+ * Lê um byte recebido (é o que o firmware faz; usado na simulação e nos
+ * testes).
+ * @param {number} byte
+ * @return {Mensagem}
  */
-export function decodificarPacote(bytes) {
-  if (bytes.length < TAMANHO_PACOTE) return null;
-  if (bytes[0] !== CABECALHO_0 || bytes[1] !== CABECALHO_1) return null;
-  const copia = Uint8Array.from({ length: TAMANHO_PACOTE }, (_, i) => bytes[i]);
-  const visao = new DataView(copia.buffer);
-  if (visao.getUint16(13, true) !== crc16(copia, 2, 13)) return null;
-  return {
-    tipo: copia[2],
-    seq: copia[3],
-    flags: copia[4],
-    roll: visao.getInt16(5, true),
-    pitch: visao.getInt16(7, true),
-    yaw: visao.getInt16(9, true),
-    throttle: visao.getUint16(11, true),
-  };
+export function decodificarByte(byte) {
+  const b = byte & 0xff;
+  if (b === BYTE_CONECTAR) return { tipo: Tipo.CONECTAR, pitch: 0, roll: 0 };
+  if (b === BYTE_DESCONECTAR) return { tipo: Tipo.DESCONECTAR, pitch: 0, roll: 0 };
+  const alto = b >> 4;
+  const baixo = b & 0x0f;
+  if (alto === 0x0f || baixo === 0x0f) return { tipo: Tipo.RESERVADO, pitch: 0, roll: 0 };
+  return { tipo: Tipo.POSICAO, pitch: alto - CENTRO, roll: baixo - CENTRO };
 }
 
-/**
- * Decodificador de fluxo: recebe bytes em pedaços de qualquer tamanho e
- * devolve os pacotes válidos. Ressincroniza sozinho depois de lixo, bytes
- * perdidos ou corrompidos (mesmo algoritmo do parser em C).
- */
-export function criarDecodificadorDeFluxo() {
-  /** @type {number[]} */
-  const janela = [];
-  const estatisticas = { errosCrc: 0, bytesDescartados: 0 };
-
-  function descartarPrimeiro() {
-    janela.shift();
-    estatisticas.bytesDescartados++;
-  }
-
-  function alinhado() {
-    return janela[0] === CABECALHO_0 &&
-        (janela.length < 2 || janela[1] === CABECALHO_1);
-  }
-
-  /**
-   * @param {ArrayLike<number>} bytes
-   * @return {!Array<Pacote>}
-   */
-  function alimentar(bytes) {
-    const pacotes = [];
-    for (let i = 0; i < bytes.length; i++) {
-      janela.push(bytes[i] & 0xff);
-      for (;;) {
-        while (janela.length > 0 && !alinhado()) descartarPrimeiro();
-        if (janela.length < TAMANHO_PACOTE) break;
-        const pacote = decodificarPacote(janela);
-        if (pacote) {
-          pacotes.push(pacote);
-          janela.length = 0;
-          break;
-        }
-        estatisticas.errosCrc++;
-        descartarPrimeiro();
-      }
-    }
-    return pacotes;
-  }
-
-  return { alimentar, estatisticas };
-}
-
-/** @param {ArrayLike<number>} bytes @return {string} ex.: "A5 5A 01" */
+/** @param {ArrayLike<number>} bytes @return {string} ex.: "77 F0" */
 export function paraHex(bytes) {
   return Array.from(bytes, (b) => b.toString(16).toUpperCase().padStart(2, '0'))
       .join(' ');

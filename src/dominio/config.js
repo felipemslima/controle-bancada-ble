@@ -9,13 +9,8 @@
  * @property {string} uuidCaracteristica  16 bits ("FFE1") ou 128 bits
  * @property {boolean} mostrarTodosDispositivos lista todos no seletor BLE
  * @property {number} taxaHz              taxa de envio (heartbeat)
- * @property {number} anguloMaxGraus      fim de curso de roll e pitch
- * @property {'taxa'|'angulo'} yawModo    como o firmware interpreta o yaw
- * @property {number} yawTaxaMaxGps       fim de curso do yaw no modo taxa (°/s)
- * @property {number} tetoThrottlePct     throttle no fim de curso (%)
  * @property {boolean} inverterRoll
  * @property {boolean} inverterPitch
- * @property {boolean} inverterYaw
  */
 
 /** @type {Readonly<Config>} Padrão: módulo HM-10. */
@@ -24,21 +19,13 @@ export const CONFIG_PADRAO = Object.freeze({
   uuidCaracteristica: 'FFE1',
   mostrarTodosDispositivos: false,
   taxaHz: 30,
-  anguloMaxGraus: 15,
-  yawModo: 'taxa',
-  yawTaxaMaxGps: 45,
-  tetoThrottlePct: 30,
   inverterRoll: false,
   inverterPitch: false,
-  inverterYaw: false,
 });
 
 /** Faixas aceitas para os campos numéricos: [mínimo, máximo]. */
 export const LIMITES = Object.freeze({
-  taxaHz: [5, 50],
-  anguloMaxGraus: [1, 30],
-  yawTaxaMaxGps: [1, 180],
-  tetoThrottlePct: [0, 100],
+  taxaHz: [10, 50],
 });
 
 const UUID_16 = /^[0-9a-f]{4}$/;
@@ -70,7 +57,8 @@ function uuid(valor, chave) {
 
 /**
  * Devolve uma configuração completa e válida. Campos ausentes ou inválidos
- * voltam ao padrão; números fora da faixa são saturados.
+ * voltam ao padrão; números fora da faixa são saturados; campos que não
+ * existem mais (de versões antigas salvas no navegador) são descartados.
  * @param {?Object=} entrada
  * @return {Readonly<Config>}
  */
@@ -81,12 +69,7 @@ export function normalizarConfig(entrada) {
     uuidCaracteristica: uuid(e.uuidCaracteristica, 'uuidCaracteristica'),
     mostrarTodosDispositivos: e.mostrarTodosDispositivos === true,
     taxaHz: Math.round(numero(e.taxaHz, 'taxaHz')),
-    anguloMaxGraus: numero(e.anguloMaxGraus, 'anguloMaxGraus'),
-    yawModo: e.yawModo === 'angulo' ? 'angulo' : 'taxa',
-    yawTaxaMaxGps: numero(e.yawTaxaMaxGps, 'yawTaxaMaxGps'),
-    tetoThrottlePct: numero(e.tetoThrottlePct, 'tetoThrottlePct'),
     inverterRoll: e.inverterRoll === true,
     inverterPitch: e.inverterPitch === true,
-    inverterYaw: e.inverterYaw === true,
   });
 }

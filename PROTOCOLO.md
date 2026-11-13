@@ -1,126 +1,93 @@
 # Protocolo do controle remoto
 
-Especificação do enlace entre a página de controle e a controladora de voo.
-Versão 1.
+Especificação do enlace entre a página de controle e a controladora.
+Versão 2 (protocolo de um byte; substitui o pacote de 15 bytes, ver o
+[ADR 0008](docs/adr/0008-protocolo-de-um-byte.md)).
 
-Este documento é para quem vai escrever o firmware. O código de referência
-está em [`firmware/rc_protocolo.h`](firmware/rc_protocolo.h) e
-[`firmware/rc_protocolo.c`](firmware/rc_protocolo.c), e pode ser usado como
-está. O equivalente da página fica em
+Este documento é para quem escreve o firmware. O código de referência está em
+[`firmware/rc_byte.h`](firmware/rc_byte.h) e
+[`firmware/rc_byte.c`](firmware/rc_byte.c), e pode ser usado como está. O
+equivalente da página fica em
 [`src/dominio/protocolo.js`](src/dominio/protocolo.js).
 
 ## 1. Visão geral
 
-```
-iPhone/PC (página) ──BLE──> módulo BLE ──UART──> controladora (RISC-V)
-                   <──BLE──            <──UART──   (telemetria, opcional)
-```
+- O protótipo fica preso em bancada e não voa, então só existem **pitch** e
+  **roll**. Não há yaw, throttle nem telemetria.
+- Cada byte recebido pela UART é uma mensagem completa. Não há cabeçalho,
+  tamanho, sequência nem checksum: o firmware lê um byte por vez e decide.
+- Caminho dos dados: página (Web Bluetooth) → módulo BLE com UART transparente
+  → UART da controladora, 9600 baud, 8N1. O sentido é só página → firmware.
+- A página envia continuamente (30 Hz por padrão, ajustável de 10 a 50 Hz).
+  Isso é o heartbeat: o firmware usa a chegada de bytes como sinal de vida.
+- Posição: pitch e roll são níveis inteiros de -7 a +7. O **significado em
+  graus** de cada nível (sugestão: 2° por nível, ou seja, ±14°) e o sentido
+  físico de cada eixo são definidos pelo firmware.
 
-- O módulo BLE (HM-10 ou parecido) funciona como UART transparente: o que a
-  página escreve na característica sai na UART, e o que entra na UART volta
-  como notificação.
-- A página envia um **pacote de comando** a uma taxa fixa (padrão 30 Hz),
-  mesmo sem mudança nos valores. Esse envio contínuo é o **heartbeat**.
-- O firmware pode enviar **pacotes de telemetria** com o mesmo formato. É
-  opcional: a página funciona sem eles.
-- Todo pacote tem **15 bytes**, então cabe em uma única escrita BLE (20 bytes
-  de carga útil no MTU padrão).
-- A 30 Hz são 450 bytes/s. Uma UART a 9600 baud (8N1) transporta 960 bytes/s,
-  então a taxa padrão do HM-10 basta. O limite da página é 50 Hz
-  (750 bytes/s).
+## 2. Bytes
 
-## 2. Formato do pacote
+| Byte | Significado |
+|---|---|
+| `0xFF` | Desconectar / parar. Vale sempre. |
+| `0xF0` | Conectar (libera o controle). |
+| `0xF1` a `0xFE` | Reservados. O receptor ignora. |
+| Qualquer outro | Posição: nibble alto = pitch, nibble baixo = roll. |
 
-Todos os campos de mais de um byte são **little-endian**.
+Qualquer byte com um nibble `F` que não seja `0xF0` ou `0xFF` é reservado.
 
-| Byte | Campo | Tipo | Conteúdo |
-|---:|---|---|---|
-| 0 | Cabeçalho 0 | `uint8` | Sempre `0xA5` |
-| 1 | Cabeçalho 1 | `uint8` | Sempre `0x5A` |
-| 2 | Tipo | `uint8` | `0x01` comando (página → firmware), `0x81` telemetria (firmware → página) |
-| 3 | Sequência | `uint8` | Contador de 0 a 255 que dá a volta; soma 1 a cada pacote enviado |
-| 4 | Flags | `uint8` | Ver a seção 3 |
-| 5–6 | Roll | `int16` | Centésimos de grau |
-| 7–8 | Pitch | `int16` | Centésimos de grau |
-| 9–10 | Yaw | `int16` | Centésimos de grau, ou centésimos de grau por segundo (flag `YAW_TAXA`) |
-| 11–12 | Throttle | `uint16` | 0 a 1000, em décimos de por cento (1000 = 100,0 %) |
-| 13–14 | CRC | `uint16` | CRC-16/CCITT-FALSE dos bytes 2 a 12 |
+Na posição, cada nibble vai de 0 a 14, com **centro 7**:
 
-### Unidades e sinais
+- nível = nibble − 7, de −7 a +7;
+- nibble maior = para cima (pitch) e para a direita (roll);
+- `0x77` = parado (os dois eixos no centro).
 
-- **Roll, pitch e yaw**: inteiro com sinal, 1 unidade = 0,01°. Exemplo:
-  `1500` = 15,00°; `-500` = −5,00°.
-- **Sentido positivo, como a página envia**: pitch positivo = joystick para a
-  frente; yaw positivo = joystick para a direita; roll positivo = joystick
-  para a direita. Se a convenção do PID for outra, cada eixo pode ser
-  invertido nos ajustes da página, sem mexer no firmware.
-- **Throttle**: sem sinal, 0 = motores no mínimo.
-- No pacote de **comando**, os campos são os setpoints pedidos. No pacote de
-  **telemetria**, são os valores medidos (ângulos) e o throttle aplicado.
+Como uma posição nunca usa o nibble `F`, nenhuma posição se confunde com
+conectar ou desconectar. Há 225 posições (15 × 15).
 
-### CRC
+### Exemplos
 
-CRC-16/CCITT-FALSE: polinômio `0x1021`, valor inicial `0xFFFF`, sem reflexão
-de entrada ou saída, sem XOR final. Valor de conferência: o CRC de
-`"123456789"` (ASCII) é `0x29B1`.
+| Byte | Mensagem |
+|---|---|
+| `0x77` | Posição: pitch 0, roll 0 (parado) |
+| `0xE7` | Posição: pitch +7, roll 0 |
+| `0x07` | Posição: pitch −7, roll 0 |
+| `0x7E` | Posição: pitch 0, roll +7 |
+| `0x70` | Posição: pitch 0, roll −7 |
+| `0xA4` | Posição: pitch +3, roll −3 |
+| `0xF0` | Conectar |
+| `0xFF` | Desconectar / parar |
 
-O CRC cobre os 11 bytes do tipo ao throttle (bytes 2 a 12). O cabeçalho fica
-de fora porque é constante.
-
-### Pacote de exemplo
-
-Comando armado, sequência 42, yaw em taxa, roll −5,00°, pitch +15,00°,
-yaw +30,00 °/s, throttle 25,0 %:
+## 3. Sequência típica de uma sessão
 
 ```
-A5 5A 01 2A 05 0C FE DC 05 B8 0B FA 00 08 2E
-│     │  │  │  └─┬─┘ └─┬─┘ └─┬─┘ └─┬─┘ └─┬─┘
-│     │  │  │  roll  pitch  yaw  thr.  CRC = 0x2E08
-│     │  │  flags = armado + yaw em taxa
-│     │  sequência = 42
-│     tipo = comando
-cabeçalho
+FF FF FF ...        página conectada ao módulo, desarmada (heartbeat)
+F0 F0 F0            usuário arma: três conectar
+77 77 77 A7 A7 ...  posições, na taxa configurada
+FF                  PARAR, perda de foco, tela bloqueada ou queda da conexão
+FF FF FF ... (10)   a página insiste antes de permitir rearmar
 ```
 
-Este mesmo vetor é verificado nos testes do JavaScript e do C.
+Notas:
 
-## 3. Flags
-
-| Bit | Máscara | Nome | No comando | Na telemetria |
-|---:|---|---|---|---|
-| 0 | `0x01` | `ARMADO` | A página está armada | O firmware está armado |
-| 1 | `0x02` | `PARADA` | Parada de emergência | A trava está ativa (ver seção 5) |
-| 2 | `0x04` | `YAW_TAXA` | O campo yaw é taxa (°/s) | Idem, modo em uso |
-| 3 | `0x08` | `FAILSAFE` | Reservado, sempre 0 | O firmware está em failsafe por timeout |
-| 4–7 | | | Reservados, sempre 0 | Reservados, sempre 0 |
-
-### Yaw: ângulo ou taxa
-
-Ainda não está decidido se o PID de yaw recebe ângulo ou taxa. Por isso o
-modo é escolhido nos ajustes da página e **vai em todos os pacotes**, na
-flag `YAW_TAXA`:
-
-- `YAW_TAXA = 1` (padrão da página): yaw em centésimos de °/s. O fim de
-  curso do joystick vale ±45 °/s por padrão.
-- `YAW_TAXA = 0`: yaw em centésimos de grau, com o mesmo fim de curso de
-  roll e pitch (±15° por padrão).
-
-O firmware deve ler a flag e tratar o valor de acordo. Se o PID só aceitar
-um dos modos, o firmware deve **recusar** pacotes armados no outro modo, em
-vez de interpretar a unidade errada.
+- O `0xF0` sai três vezes (`PACOTES_DE_INICIO`) para cobrir a perda de um byte
+  no rádio. O firmware deve tratar `0xF0` repetido como um só.
+- O primeiro byte de posição depois do conectar é `0x77`, porque a página só
+  arma com o joystick solto.
+- Se a conexão BLE cair, não há como enviar nada; quem protege é o failsafe
+  (seção 5.2).
 
 ## 4. O que a página garante
 
-1. Pacote sem `ARMADO` tem roll, pitch, yaw e throttle em zero.
-2. Pacote com `PARADA` nunca tem `ARMADO` e tem tudo em zero.
-3. O primeiro pacote armado depois de armar tem tudo em zero, porque a
-   página só arma com os controles soltos.
-4. Depois de um PARAR, a página envia 10 pacotes seguidos com `PARADA` e
-   depois volta ao heartbeat desarmado.
-5. As escritas são seriais e sem fila: um pacote com valores antigos nunca é
-   escrito depois do pacote de parada.
-6. Se a página perder o foco, a tela bloquear ou a conexão cair, a página
-   desarma e, se ainda puder, envia um pacote desarmado.
+1. Desarmada ou em parada, só sai `0xFF`.
+2. Ao armar, sai `0xF0` três vezes e só depois o byte de posição.
+3. Armar exige o joystick solto, então a primeira posição é `0x77`.
+4. Depois de um PARAR, a página envia 10 vezes `0xFF` antes de permitir
+   rearmar.
+5. As escritas são seriais e sem fila: uma posição antiga nunca é escrita
+   depois de um `0xFF`.
+6. PARAR, perda de foco, tela bloqueada ou queda da conexão geram `0xFF`
+   imediato (quando o enlace ainda permite).
+7. Uma escrita travada por mais de 1 s derruba a conexão.
 
 **O firmware não deve confiar em nada disso.** A página roda em um celular,
 em um navegador que o sistema pode suspender a qualquer momento, sobre um
@@ -128,161 +95,115 @@ enlace de rádio. A proteção de verdade é a da próxima seção.
 
 ## 5. O que o firmware precisa fazer
 
-Estas regras já estão implementadas em `rc_receptor_*`. Se o firmware usar
-outra implementação, precisa manter todas.
+### 5.1 Regras do receptor
 
-### 5.1 Failsafe por timeout (obrigatório)
+1. **Começar desconectado**, com pitch e roll em zero.
+2. **Ignorar posições antes do `0xF0`.** Também depois de um failsafe, até
+   chegar um novo `0xF0`.
+3. **`0xFF` sempre vale:** desconecta e zera, em qualquer estado.
+4. **`0xF0`** conecta com pitch e roll em zero. Repetido não muda nada.
+5. **Bytes reservados** são ignorados e **não contam como sinal de vida**.
+6. Definir os graus por nível e o sentido de cada eixo, e limitar o setpoint
+   do PID a um valor seguro para a bancada.
 
-Se passarem **250 ms** sem nenhum comando aceito, o firmware zera os
-setpoints, desarma e ativa a trava. A 30 Hz, isso equivale a cerca de 7
-pacotes perdidos em sequência. O valor está em `RC_TIMEOUT_MS`.
+### 5.2 Failsafe por timeout (obrigatório)
 
-É a única proteção que funciona quando o celular trava, a bateria acaba ou
-o navegador é suspenso. Pacotes recusados não contam como sinal de vida.
+Se o receptor está conectado e passam `RC_TIMEOUT_MS` (250 ms) sem nenhum byte
+aceito (posição, `0xF0` ou `0xFF`), ele desconecta e zera pitch e roll. Depois
+disso, posições são ignoradas até um novo `0xF0`. Isso cobre queda do Bluetooth,
+celular travado e página suspensa. Sem este item, não teste com hélices.
 
-### 5.2 Limites (obrigatório)
+O tempo de 250 ms foi pensado para 30 Hz (33 ms entre bytes, cerca de 7
+bytes perdidos em sequência antes de disparar). Por isso a página não aceita
+taxa abaixo de 10 Hz (100 ms entre bytes). Se mudar o timeout, mantenha-o
+bem acima do intervalo entre bytes.
 
-O firmware satura os setpoints recebidos, sem depender dos limites da
-página:
+### 5.3 Sem checksum
 
-| Macro | Padrão | Significado |
-|---|---|---|
-| `RC_LIMITE_ROLL_PITCH` | `3000` | ±30,00° |
-| `RC_LIMITE_YAW` | `18000` | ±180,00° ou ±180,00 °/s |
-| `RC_LIMITE_THROTTLE` | `1000` | 100,0 % |
+O BLE já verifica erros no ar e o trecho de UART é curto, então o protocolo não
+tem CRC. Um byte corrompido vira, no pior caso, uma posição errada por um
+ciclo, que o byte seguinte corrige. Se a UART se mostrar ruidosa, uma extensão
+possível é mandar cada byte seguido do seu complemento (`pos, ~pos`) e aceitar
+só pares coerentes. **Não está implementada.**
 
-**Ajuste esses valores ao protótipo.** Com o protótipo preso, faz sentido
-reduzir `RC_LIMITE_THROTTLE` e `RC_LIMITE_YAW` ao que a bancada suporta. A
-página limita o ângulo a no máximo 30° e, por padrão, o throttle a 30 %.
+### 5.4 Cuidado com o módulo BLE (texto do HM-10)
 
-### 5.3 Trava de parada
+O HM-10 pode escrever texto na UART por conta própria, como `OK+CONN` ao
+conectar e `OK+LOST` ao perder a conexão. Esses bytes são ASCII (`0x4F`,
+`0x4B`, `0x2B`...) e **caem na faixa de posição**. Antes do `0xF0`, o receptor
+os ignora. Mas se a mensagem chegar com o controle conectado, ela vira
+posições espúrias por um instante.
 
-- Um pacote com `PARADA` zera tudo, desarma e ativa a **trava**. Vale
-  sempre, qualquer que seja a sequência ou os outros campos.
-- O failsafe por timeout também ativa a trava.
-- O firmware começa com a trava ativa.
-- Com a trava ativa, pacotes armados são recusados.
-- A trava só sai com um pacote **desarmado e com tudo em zero**.
+Recomendação: desligar essas notificações no módulo (no HM-10, o comando AT
+`AT+NOTI0`). **É preciso confirmar o comando equivalente no módulo escolhido**
+(HC-08, JDY-23 etc.); o comportamento muda de um fabricante para outro.
 
-Consequência: depois de uma parada ou de uma falha de enlace, o protótipo
-não volta a responder sozinho. Alguém precisa desarmar e armar de novo na
-página.
+## 6. Código de referência em C
 
-### 5.4 Armar só com zeros
+`firmware/rc_byte.h` e `rc_byte.c`: C99, só `<stdint.h>` e `<stdbool.h>`, sem
+alocação dinâmica.
 
-A passagem de desarmado para armado só é aceita se o pacote armado tiver
-roll, pitch, yaw e throttle em zero.
+- `rc_decodificar(byte)`: traduz um byte, sem estado.
+- `rc_codificar_posicao(pitch, roll)`: monta o byte (níveis saturados).
+- `rc_receptor_processar(&r, byte, agora_ms)`: aplica as regras da seção 5.1;
+  devolve `true` se o byte foi aceito.
+- `rc_receptor_tick(&r, agora_ms)`: aplica o timeout da seção 5.2.
 
-### 5.5 Pacote desarmado
-
-Um pacote sem `ARMADO` sempre desarma e zera. Se ele trouxer algum valor
-diferente de zero, é inválido: desarma do mesmo jeito, mas não libera a
-trava nem conta como sinal de vida.
-
-### 5.6 Sequência
-
-Entre pacotes armados, o firmware recusa o pacote cuja sequência seja igual
-à do último aceito ou esteja "atrás" dela (diferença módulo 256 igual a 0 ou
-maior que 127). Pacotes de parada e pacotes desarmados não passam por essa
-verificação, porque sempre levam ao estado seguro. Depois de um failsafe, a
-contagem recomeça.
-
-### 5.7 Outras recusas
-
-Tipo diferente de `0x01` ou qualquer bit reservado das flags ligado: o
-pacote é recusado.
-
-## 6. Como usar o código de referência
-
-O código usa só `<stdint.h>` e `<stdbool.h>`, não aloca memória e não
-depende de endianness. Compila sem avisos com
-`-std=c99 -Wall -Wextra -Werror -pedantic -Wconversion`.
+Exemplo de uso (nomes de hardware ilustrativos):
 
 ```c
-#include "rc_protocolo.h"
+#include "rc_byte.h"
 
-static rc_parser_t parser;
-static rc_receptor_t receptor;
+static volatile rc_receptor_t rx;   /* escrito na interrupção, lido no PID */
 
-void rc_iniciar(void)
+void uart_rx_isr(void)              /* um byte por interrupção */
 {
-    rc_parser_iniciar(&parser);
-    rc_receptor_iniciar(&receptor); /* começa desarmado e travado */
+    rc_receptor_processar((rc_receptor_t *)&rx, uart_ler_byte(), tempo_ms());
 }
 
-/* Chame para cada byte que chegar na UART do módulo BLE. */
-void rc_ao_receber_byte(uint8_t byte)
+void ciclo_pid(void)                /* periódico, por exemplo 1 kHz */
 {
-    rc_pacote_t pacote;
-    if (rc_parser_alimentar(&parser, byte, &pacote)) {
-        rc_receptor_processar(&receptor, &pacote, relogio_ms());
-    }
-}
+    rc_receptor_t copia;
 
-/* Chame em todo ciclo do PID, antes de usar os setpoints. */
-void rc_ciclo_do_pid(void)
-{
-    rc_receptor_tick(&receptor, relogio_ms()); /* failsafe por timeout */
+    desabilitar_interrupcoes();     /* cópia coerente do receptor */
+    rc_receptor_tick((rc_receptor_t *)&rx, tempo_ms());
+    copia = *(rc_receptor_t *)&rx;
+    habilitar_interrupcoes();
 
-    const rc_setpoints_t *sp = &receptor.sp;
-    if (!sp->armado) {
-        desligar_motores();
-        return;
+    if (copia.conectado) {
+        pid_setpoint(copia.pitch * GRAUS_POR_NIVEL, copia.roll * GRAUS_POR_NIVEL);
+    } else {
+        pid_setpoint(0, 0);
     }
-    /* sp->roll e sp->pitch: centésimos de grau.
-     * sp->yaw: centésimos de grau, ou de grau/s se sp->yaw_eh_taxa.
-     * sp->throttle: 0 a 1000. */
-    pid_atualizar(sp->roll, sp->pitch, sp->yaw, sp->yaw_eh_taxa, sp->throttle);
 }
 ```
 
-`relogio_ms()`, `desligar_motores()` e `pid_atualizar()` são do firmware.
-`relogio_ms()` precisa ser um contador monotônico em milissegundos; pode dar
-a volta em 32 bits sem problema.
+Pontos de atenção:
 
-Cuidados:
-
-- Se `rc_ao_receber_byte` rodar em interrupção e `rc_ciclo_do_pid` no laço
-  principal, proteja o acesso a `receptor` (desabilite a interrupção da UART
-  durante a leitura dos setpoints, ou passe os bytes por uma fila e processe
-  tudo no laço principal).
-- O parser se ressincroniza sozinho. Não é preciso limpar nada quando chega
-  lixo. `parser.erros_crc` e `parser.bytes_descartados` servem de diagnóstico.
-- Alguns módulos BLE enviam texto pela UART ao conectar ou desconectar (por
-  exemplo `OK+CONN` no HM-10). O parser descarta esses bytes.
-
-### Telemetria (opcional)
-
-```c
-uint8_t bytes[RC_TAMANHO_PACOTE];
-static uint8_t seq;
-
-rc_montar_telemetria(&receptor, seq++, roll_medido, pitch_medido, yaw_medido,
-                     throttle_aplicado, bytes);
-uart_enviar(bytes, RC_TAMANHO_PACOTE);
-```
-
-Uma taxa de 10 Hz é suficiente para a tela. A página mostra os valores
-medidos ao lado dos comandados e o estado do firmware (armado, trava,
-failsafe). Se a telemetria informar failsafe ou trava enquanto a página está
-armada, a página desarma e avisa o usuário.
+- `rc_receptor_t` é compartilhada entre a interrupção e o laço do PID. Proteja
+  o acesso (como acima) ou chame tudo do mesmo contexto, lendo os bytes da UART
+  por polling no laço.
+- `agora_ms` precisa ser monotônico; a volta em 32 bits é tratada.
+- Chame `rc_receptor_tick` com regularidade. Sem isso o failsafe não existe.
+- Se o hardware tem FIFO na UART, processe todos os bytes pendentes antes do
+  tick; a ordem dos bytes importa (um `0xFF` depois de posições deve vencer).
 
 ## 7. Testes
 
-`npm test` (ou `node --test "testes/*.test.js"`) compila o código C com o
-`gcc` e verifica:
+`npm test` roda os testes em JavaScript (protocolo, estado, transmissor e BLE
+com um mock) e compila com `gcc` o teste em C
+(`testes/firmware/teste_byte.c`). Há um teste cruzado: o mesmo conjunto de
+256 valores de byte é decodificado em JavaScript e em C, e os resultados têm
+de coincidir.
 
-- os testes unitários do parser e do receptor
-  ([`testes/firmware/teste_protocolo.c`](testes/firmware/teste_protocolo.c));
-- 500 pacotes aleatórios codificados em JavaScript e decodificados em C, com
-  lixo, pacotes truncados e pacotes corrompidos no meio do fluxo;
-- 100 pacotes de telemetria codificados em C e decodificados em JavaScript.
+**Não testado:** módulo BLE real, firmware real no RISC-V, Bluefy e iOS.
 
-Esses testes rodam no PC (x86-64). O código não foi compilado nem executado
-no alvo RISC-V.
+## 8. Mudanças futuras
 
-## 8. Mudanças futuras no protocolo
-
-O byte de tipo identifica o formato. Para acrescentar campos, crie um tipo
-novo (por exemplo `0x02`) em vez de mudar o `0x01`. O passo a passo está em
-[`docs/ARQUITETURA.md`](docs/ARQUITETURA.md).
+- Qualquer mudança no protocolo precisa ser feita ao mesmo tempo em
+  `src/dominio/protocolo.js`, `firmware/rc_byte.c` e `.h`, neste documento e
+  nos testes. Se for incompatível, registre um ADR que substitua o 0008.
+- Os bytes `0xF1` a `0xFE` ficam reservados para extensões. O receptor atual os
+  ignora, então a página pode usá-los no futuro sem quebrar firmwares que
+  seguem esta especificação.
+- Detecção de erro na UART: ver a seção 5.3 (byte seguido do complemento).

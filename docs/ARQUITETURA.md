@@ -2,7 +2,7 @@
 
 ## Visão geral
 
-O projeto é um controle remoto web, uma página estática servida pelo GitHub Pages. Ele envia setpoints de roll, pitch, yaw e throttle por Web Bluetooth (BLE) para um módulo UART transparente (tipo HM-10) ligado à controladora de voo, que roda em um silício RISC-V próprio. O protótipo fica preso em bancada e o objetivo é validar a resposta do PID. No iPhone a página roda no Bluefy (o Safari não tem Web Bluetooth); em Android e PC, no Chrome ou no Edge. Quando a segurança e a conveniência entram em conflito, vale a segurança.
+O projeto é um controle remoto web, uma página estática servida pelo GitHub Pages. Ele envia a posição de pitch e roll, em um byte por mensagem, por Web Bluetooth (BLE) para um módulo BLE com UART transparente (tipo HM-10) ligado à controladora, que roda em um silício RISC-V próprio. O protótipo fica preso em bancada, não voa, e o objetivo é validar a resposta do PID. Não há yaw, throttle nem telemetria. No iPhone a página roda no Bluefy (o Safari não tem Web Bluetooth); em Android e PC, no Chrome ou no Edge. Quando a segurança e a conveniência entram em conflito, vale a segurança.
 
 O código segue a arquitetura hexagonal (portas e adaptadores): as regras ficam no centro e não conhecem o navegador nem o rádio. Não há build nem dependências: o navegador carrega os módulos ES direto. Para saber por que cada escolha foi feita, veja os [ADRs](adr/README.md). O formato dos bytes está em [PROTOCOLO.md](../PROTOCOLO.md).
 
@@ -33,18 +33,18 @@ A regra de dependência aponta para dentro: `ui` e `adaptadores` dependem de `ap
 | --- | --- | --- |
 | `src/main.js` | Cria adaptadores, loja, gerenciador e transmissor; monta a interface. | todas as camadas |
 | `src/dominio/estado.js` | Ações, redutor puro, `podeArmar` e `comandoDeSaida`. | `config.js` |
-| `src/dominio/protocolo.js` | Quadro de 15 bytes, CRC-16, `codificarComando`, decodificador de fluxo. | nada |
+| `src/dominio/protocolo.js` | Protocolo de um byte: `codificarComando`, `codificarPosicao`, `decodificarByte`, `paraHex`. | nada |
 | `src/dominio/config.js` | Valores padrão, faixas e normalização da configuração. | nada |
 | `src/aplicacao/portas.js` | Typedefs JSDoc de `Enlace`, `OpcoesDeConexao` e `Armazenamento`. | nada (só tipos) |
 | `src/aplicacao/loja.js` | Guarda o estado, despacha ações em fila e avisa os assinantes. | nada |
 | `src/aplicacao/transmissor.js` | Laço de envio periódico (heartbeat) com a porta `Enlace`. | `dominio/` |
-| `src/aplicacao/conexao.js` | Conectar, desconectar, reconexão automática e leitura da telemetria. | `dominio/`, `portas.js` |
+| `src/aplicacao/conexao.js` | Conectar, desconectar e reconexão automática. Bytes recebidos do módulo são ignorados. | `dominio/`, `portas.js` |
 | `src/adaptadores/ble-web.js` | `Enlace` sobre `navigator.bluetooth`. | nada do projeto |
-| `src/adaptadores/enlace-simulado.js` | `Enlace` falso (`?simular`): aceita comandos e devolve telemetria. | `dominio/protocolo.js` |
+| `src/adaptadores/enlace-simulado.js` | `Enlace` falso (`?simular`): aceita os bytes e guarda a última mensagem decodificada. | `dominio/protocolo.js` |
 | `src/adaptadores/navegador.js` | Ciclo de vida da página, wake lock e `localStorage`. | nada do projeto |
-| `src/ui/controles.js` | Joystick de dois eixos e botão de segurar. Só conhecem o DOM. | nada do projeto |
+| `src/ui/controles.js` | Joystick (pitch e roll, volta ao centro) e botão de segurar. Só conhecem o DOM. | nada do projeto |
 | `src/ui/interface.js` | Liga o DOM à loja: despacha ações e desenha o estado. Recebe loja, gerenciador e transmissor por injeção. | `dominio/`, `controles.js`, tipos de `aplicacao/` |
-| `firmware/rc_protocolo.h`, `.c` | Parser, CRC e regras de segurança do lado da controladora. | só `<stdint.h>` e `<stdbool.h>` |
+| `firmware/rc_byte.h`, `.c` | Decodificador de byte e receptor (ignora posição antes de conectar, failsafe por timeout) para a controladora. | só `<stdint.h>` e `<stdbool.h>` |
 
 ## Fluxo de estado
 
@@ -60,7 +60,7 @@ stateDiagram-v2
   state Conectado {
     [*] --> Desarmado
     Desarmado --> Armado: ARMAR (segurar 1 s, controles soltos, sem parada em curso)
-    Armado --> Desarmado: DESARMAR, PARAR, FOCO_PERDIDO, failsafe ou parada travada na telemetria
+    Armado --> Desarmado: DESARMAR, PARAR ou FOCO_PERDIDO
   }
 ```
 
@@ -68,24 +68,20 @@ Além das transições do diagrama, qualquer saída do estado `Conectado` desarm
 
 ## Configuração
 
-`dominio/config.js` define os valores padrão e as faixas aceitas, e `normalizarConfig` devolve sempre uma configuração válida: campo ausente volta ao padrão e número fora da faixa é saturado. Os padrões são conservadores (roll e pitch até 15 graus, yaw em taxa até 45 graus/s, throttle até 30%, 30 Hz). A configuração fica no `localStorage` por meio da porta `Armazenamento`; se o navegador bloquear o armazenamento, a página usa os padrões.
+`dominio/config.js` define os valores padrão e as faixas aceitas, e `normalizarConfig` devolve sempre uma configuração válida: campo ausente volta ao padrão e número fora da faixa é saturado. Os campos são os UUIDs do serviço e da característica (padrão HM-10, `FFE0`/`FFE1`), mostrar todos os dispositivos, taxa de envio (10 a 50 Hz, padrão 30) e inverter pitch e roll. A configuração fica no `localStorage` por meio da porta `Armazenamento`; se o navegador bloquear o armazenamento, a página usa os padrões.
 
 ## O caminho de um comando
 
-1. O dedo mexe em um controle de `ui/controles.js`, que chama `aoMudar` com um valor normalizado (-1 a 1, ou 0 a 1 no throttle).
-2. `ui/interface.js` despacha `EIXOS_ALTERADOS`. A loja aplica `reduzir` e guarda os eixos saturados.
-3. A cada tick do `transmissor` (30 Hz por padrão, configurável de 5 a 50), ele lê o estado atual e chama `comandoDeSaida(estado)`. Esse é o único ponto que decide o que vai para o rádio: desarmado ou em parada, tudo sai zerado; armado, aplica ângulo máximo, inversões, modo do yaw e teto de throttle da configuração.
-4. `codificarComando(comando, seq)` converte para as unidades do protocolo e monta os 15 bytes com CRC. Ele zera os valores de novo se o comando for desarmado ou de parada.
-5. `enlace.escrever(bytes)` entrega ao adaptador (BLE ou simulado). O pacote é montado no instante do envio; nada fica guardado esperando.
-6. Se a escrita deu certo, o transmissor despacha `PACOTE_ENVIADO`. Depois de um `PARAR`, isso consome o contador de 10 pacotes seguidos com a flag de parada (`PACOTES_DE_PARADA`).
+1. O dedo mexe no joystick de `ui/controles.js`, que chama `aoMudar(x, y)` com valores normalizados (-1 a 1; `y` positivo é para cima).
+2. `ui/interface.js` despacha `EIXOS_ALTERADOS` com `roll: x` e `pitch: y`. A loja aplica `reduzir` e guarda os eixos saturados.
+3. A cada tick do `transmissor` (30 Hz por padrão, configurável de 10 a 50), ele lê o estado atual e chama `comandoDeSaida(estado)`. Esse é o único ponto que decide o que vai para o rádio: desarmado ou em parada, `DESCONECTAR` (`0xFF`); logo após armar, `CONECTAR` (`0xF0`) três vezes; depois, a posição, com as inversões da configuração.
+4. `codificarComando(comando)` converte para um byte: `nivelDoEixo` arredonda cada eixo para -7 a +7 e `codificarPosicao` monta os nibbles (centro 7). Um tipo desconhecido vira `0xFF`.
+5. `enlace.escrever(bytes)` entrega ao adaptador (BLE ou simulado). O byte é montado no instante do envio; nada fica guardado esperando.
+6. Se a escrita deu certo, o transmissor despacha `PACOTE_ENVIADO`. Depois de um `PARAR`, isso consome o contador de 10 `0xFF` (`PACOTES_DE_PARADA`); depois de armar, o de 3 `0xF0` (`PACOTES_DE_INICIO`).
 
-## O caminho da telemetria
+## Sem telemetria
 
-1. O módulo notifica bytes; o adaptador chama quem registrou `enlace.aoReceber`.
-2. `aplicacao/conexao.js` passa os bytes ao decodificador de fluxo de `protocolo.js`, que ressincroniza depois de lixo e descarta pacotes com CRC inválido.
-3. Para cada pacote de telemetria, o gerenciador converte para unidades físicas e despacha `TELEMETRIA_RECEBIDA`.
-4. O redutor guarda a telemetria. Se a página está armada e o firmware informa failsafe ou parada travada, o redutor desarma.
-5. `ui/interface.js` desenha os valores medidos. Telemetria com mais de 1 s aparece como "sem telemetria".
+O protocolo atual só vai da página para a controladora. O caminho de telemetria (decodificador de fluxo, `TELEMETRIA_RECEBIDA`, desarme por failsafe informado pelo firmware) foi removido junto com o pacote de 15 bytes ([ADR 0008](adr/0008-protocolo-de-um-byte.md)). A porta `Enlace` ainda tem `aoReceber` e o adaptador BLE ainda liga as notificações quando a característica as oferece, mas `conexao.js` ignora o que chega e nada na aplicação usa `aoReceber`. Se um dia houver retorno do firmware, é por aí que ele entra.
 
 ## Modelo de segurança
 
@@ -93,53 +89,53 @@ São barreiras em camadas. A página é a primeira; o firmware é a última e n�
 
 Na página:
 
-1. **Redutor puro** (`dominio/estado.js`): `podeArmar` só deixa armar conectado, sem parada em curso e com todos os eixos em zero. Desarmar, `PARAR`, perda de foco, queda da conexão e telemetria de failsafe zeram os eixos e desarmam.
-2. **Ponto único de saída** (`dominio/estado.js`, `comandoDeSaida`): se não está armado, tudo sai zerado, não importa o que os controles digam.
-3. **Segunda barreira** (`dominio/protocolo.js`, `codificarComando`): comando desarmado ou de parada sempre sai com roll, pitch, yaw e throttle em zero, mesmo que quem chama erre.
-4. **Transmissor sem fila e com envio imediato ao desarmar** (`aplicacao/transmissor.js`): só há uma escrita em andamento; ticks que chegam com ela pendente são descartados. Ao desarmar, o pacote zerado sai logo, ou logo após a escrita pendente, e sempre depois de qualquer valor antigo.
-5. **Watchdog de escrita** (`aplicacao/transmissor.js`): se uma escrita passa de 1 s (`LIMITE_ESCRITA_MS`), o enlace é desconectado e o failsafe do firmware assume.
-6. **Controles relativos ao ponto de toque** (`ui/controles.js`): encostar o dedo nunca gera valor, só o deslocamento. O eixo do throttle (vertical do joystick esquerdo) fica travado enquanto desarmado.
-7. **Segurar para armar** (`ui/controles.js` e `ui/interface.js`): armar exige manter o botão pressionado por 1 s. Armado, um toque desarma. Além do botão PARAR, as teclas Esc e Espaço também disparam `PARAR`.
-8. **Perda de foco** (`adaptadores/navegador.js`): página oculta, suspensa, fechada ou sem foco despacha `FOCO_PERDIDO`, porque no iOS não há execução em segundo plano.
+1. **Redutor puro** (`dominio/estado.js`): `podeArmar` só deixa armar conectado, sem parada em curso e com o joystick solto. Desarmar, `PARAR`, perda de foco e queda da conexão zeram os eixos e desarmam.
+2. **Ponto único de saída** (`dominio/estado.js`, `comandoDeSaida`): se não está armado ou está em parada, sai `0xFF`, não importa o que o joystick diga. Ao armar, saem três `0xF0` antes de qualquer posição.
+3. **Transmissor sem fila e com envio imediato ao desarmar** (`aplicacao/transmissor.js`): só há uma escrita em andamento; ticks que chegam com ela pendente são descartados. Ao desarmar, o `0xFF` sai logo, ou logo após a escrita pendente, e sempre depois de qualquer posição antiga.
+4. **Watchdog de escrita** (`aplicacao/transmissor.js`): se uma escrita passa de 1 s (`LIMITE_ESCRITA_MS`), o enlace é desconectado e o failsafe do firmware assume.
+5. **Joystick relativo ao ponto de toque** (`ui/controles.js`): encostar o dedo nunca gera valor, só o deslocamento.
+6. **Segurar para armar** (`ui/controles.js` e `ui/interface.js`): armar exige manter o botão pressionado por 1 s. Armado, um toque desarma. Além do botão PARAR, as teclas Esc e Espaço também disparam `PARAR`.
+7. **Perda de foco** (`adaptadores/navegador.js`): página oculta, suspensa, fechada ou sem foco despacha `FOCO_PERDIDO`, porque no iOS não há execução em segundo plano.
 
-No firmware (`firmware/rc_protocolo.c`):
+No firmware (`firmware/rc_byte.c`, referência; o firmware real é do colega):
 
-1. **Trava de parada**: o receptor começa travado. Um pacote de parada zera tudo e trava; um pacote armado é rejeitado enquanto a trava estiver ativa. A trava só sai com um pacote desarmado e zerado.
-2. **Armar só com zeros**: um pacote armado com algum valor diferente de zero é rejeitado se o receptor ainda está desarmado.
-3. **Limites**: roll e pitch saturam em `RC_LIMITE_ROLL_PITCH` (30,00 graus), yaw em `RC_LIMITE_YAW` e throttle em `RC_LIMITE_THROTTLE`. São macros que podem ser trocadas na linha de compilação.
-4. **Sequência**: pacote armado repetido ou mais antigo que o último aceito é rejeitado.
-5. **Failsafe por timeout**: sem comando válido por `RC_TIMEOUT_MS` (250 ms), `rc_receptor_tick` zera, desarma e trava. O chamador precisa invocar `rc_receptor_tick` periodicamente.
+1. **Posição antes de conectar é ignorada.** O receptor começa desconectado e só aceita posições depois de um `0xF0`.
+2. **`0xFF` sempre vale:** desconecta e zera, em qualquer estado.
+3. **Failsafe por timeout:** sem byte aceito por `RC_TIMEOUT_MS` (250 ms), `rc_receptor_tick` desconecta e zera, e posições são ignoradas até um novo `0xF0`. O chamador precisa invocar `rc_receptor_tick` periodicamente.
+4. **Bytes reservados** (`0xF1` a `0xFE` e qualquer um com nibble `F`) são ignorados e não contam como sinal de vida.
+5. **Limite de setpoint:** os graus por nível são definidos pelo firmware, que deve limitá-los a um valor seguro. Os níveis só vão de -7 a +7.
 
-Além disso, o receptor rejeita tipo desconhecido, flags fora de `RC_FLAGS_DE_COMANDO` e pacote desarmado com valores.
+Não há checksum. Um byte corrompido vira, no pior caso, uma posição errada por um ciclo. O HM-10 pode escrever texto (`OK+CONN`) na UART, que cai na faixa de posição; ver o cuidado em [PROTOCOLO.md](../PROTOCOLO.md), seção 5.4.
 
 ## Como estender
 
 ### 1. Novo transporte (por exemplo, Web Serial)
 
+Caso típico: manter o HC-05 (Bluetooth Classic), que não funciona com Web Bluetooth. Web Serial roda no Chrome desktop e no Android, mas não no iPhone.
+
 1. Crie `src/adaptadores/serial-web.js` com uma função `criarEnlaceSerial()` que devolva um objeto no formato de `Enlace` (veja `aplicacao/portas.js`): `suportado`, `conectar`, `reconectar`, `desconectar`, `escrever`, `aoReceber` e `aoDesconectar`.
 2. Respeite o contrato: `escrever` resolve quando o transporte aceitou os bytes e não será chamada de novo antes disso; `aoDesconectar` deve ser chamado em toda queda, inclusive a que o navegador detecta sozinho; `conectar` abre o seletor e só é chamada a partir de um gesto do usuário.
-3. Entregue os bytes recebidos em `aoReceber` como vierem. O decodificador de fluxo já trata pedaços de qualquer tamanho.
+3. `aoReceber` pode ficar vazio: hoje ninguém o usa.
 4. Em `src/main.js`, escolha o adaptador onde hoje se escolhe entre `criarEnlaceBle()` e `criarEnlaceSimulado()`. Nenhum outro arquivo muda.
 5. Se o transporte precisar de opções novas (por exemplo, baud rate), acrescente-as a `OpcoesDeConexao` e a `config.js`.
 6. Teste o adaptador injetando um objeto falso do navegador, como já é feito com `bluetooth` em `criarEnlaceBle`.
 
-### 2. Novo campo ou novo tipo de pacote
+### 2. Mudar o protocolo
 
 O protocolo existe em duas implementações que precisam ficar iguais.
 
-1. Atualize primeiro `PROTOCOLO.md`: layout, tamanho, unidades e a regra de validação. Mantenha o pacote dentro de 20 bytes se quiser caber no MTU padrão do BLE.
-2. JavaScript, em `src/dominio/protocolo.js`: constantes (`TAMANHO_PACOTE`, tipo, flag), `codificarPacote`, `decodificarPacote` e o intervalo coberto pelo `crc16`. Se o campo vem do comando, ajuste `Comando` e `codificarComando`, mantendo o zero obrigatório quando desarmado.
-3. C, em `firmware/rc_protocolo.h` e `.c`: as macros, `rc_pacote_t`, `rc_parser_alimentar`, `rc_codificar` e a regra de segurança em `rc_receptor_processar`. Um campo novo no comando também precisa de limite e de tratamento no armar.
-4. Para um tipo novo de pacote, `rc_receptor_processar` hoje rejeita tudo que não é `RC_TIPO_COMANDO`, e `conexao.js` ignora tudo que não é telemetria. Trate o tipo novo nos dois lados.
-5. Atualize os testes: os de `src/dominio/protocolo.js` com `node --test`, e os do firmware em `testes/firmware/` com `gcc`. Confira que os dois lados produzem os mesmos bytes para o mesmo comando.
-6. Mudou o layout de forma incompatível? Registre um ADR novo que substitua o 0005.
+1. Atualize primeiro `PROTOCOLO.md`: bytes, significado e regras do receptor. Os bytes `0xF1` a `0xFE` estão reservados para extensões.
+2. JavaScript, em `src/dominio/protocolo.js`: constantes, `Tipo`, `codificarComando` e `decodificarByte`. Se há um tipo novo de comando, ajuste `Comando` e `comandoDeSaida` em `estado.js`, mantendo `0xFF` como saída quando desarmado.
+3. C, em `firmware/rc_byte.h` e `.c`: `rc_decodificar`, `rc_codificar_posicao` e a regra de segurança em `rc_receptor_processar`.
+4. Atualize os testes: os de JavaScript com `node --test` e o de C em `testes/firmware/teste_byte.c`. O teste cruzado compara os 256 valores de byte nos dois lados.
+5. Mudou o protocolo de forma incompatível? Registre um ADR novo que substitua o 0008.
 
 ### 3. Novo controle na interface
 
-1. Novo eixo ou valor de estado: acrescente o campo em `Eixos` e em `EIXOS_ZERADOS` (`dominio/estado.js`) e a saturação dele em `EIXOS_ALTERADOS`. Se o controle gera uma ação nova, acrescente-a a `Acao` e um `case` no redutor.
+1. Novo eixo ou valor de estado (hoje só há pitch e roll): acrescente o campo em `Eixos` e em `EIXOS_ZERADOS` (`dominio/estado.js`) e a saturação dele em `EIXOS_ALTERADOS`. Se o controle gera uma ação nova, acrescente-a a `Acao` e um `case` no redutor.
 2. Regra de segurança: decida no redutor se o novo valor desarma ou bloqueia o armar (ajuste `podeArmar` se preciso). Nunca decida isso na UI.
-3. Saída: se o valor deve ir para o rádio, inclua-o em `comandoDeSaida`, que continua sendo o único ponto de saída, e então siga o roteiro do caso 2.
-4. Componente de toque: use ou acrescente uma função em `ui/controles.js` (o `criarJoystick` já aceita um eixo vertical que não volta ao soltar, como o throttle). Ela só conhece o DOM, deve ser relativa ao ponto de toque e deve expor `reiniciar()`, que `interface.js` chama quando `geracaoDeControles` muda.
+3. Saída: se o valor deve ir para o rádio, inclua-o em `comandoDeSaida`, que continua sendo o único ponto de saída, e então siga o roteiro do caso 2 (o byte de posição só tem dois nibbles; um terceiro eixo pede um protocolo novo).
+4. Componente de toque: use ou acrescente uma função em `ui/controles.js` (o `criarJoystick` devolve ao centro ao soltar). Ela só conhece o DOM, deve ser relativa ao ponto de toque e deve expor `reiniciar()`, que `interface.js` chama quando `geracaoDeControles` muda.
 5. Em `index.html` e `css/`, acrescente o elemento; em `ui/interface.js`, despache a ação e desenhe o novo valor em `desenhar()`.
 6. Teste o redutor e `comandoDeSaida` com `node --test`, sem navegador.
 

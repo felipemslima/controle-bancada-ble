@@ -10,11 +10,10 @@ import { criarGerenciadorDeConexao } from '../src/aplicacao/conexao.js';
 import { criarLoja } from '../src/aplicacao/loja.js';
 import { criarTransmissor } from '../src/aplicacao/transmissor.js';
 import { normalizarConfig } from '../src/dominio/config.js';
-import { Acao, Conexao, estadoInicial, reduzir } from '../src/dominio/estado.js';
 import {
-  FLAG_ARMADO, FLAG_FAILSAFE, FLAG_PARADA, TIPO_TELEMETRIA, codificarPacote,
-  decodificarPacote,
-} from '../src/dominio/protocolo.js';
+  Acao, Conexao, PACOTES_DE_INICIO, estadoInicial, reduzir,
+} from '../src/dominio/estado.js';
+import { decodificarByte } from '../src/dominio/protocolo.js';
 import { assentar, criarMockBluetooth } from './apoio/mock-bluetooth.js';
 
 const HM10 = { servico: 0xffe0, caracteristica: 0xffe1, mostrarTodos: false };
@@ -28,18 +27,10 @@ function montar({ mock = criarMockBluetooth(), config } = {}) {
     esperar: async (ms) => {
       esperas.push(ms);
     },
-    agora: () => 1234,
   });
   const transmissor = criarTransmissor({ loja, enlace, agora: () => 0 });
   const despachar = (tipo, extras) => loja.despachar({ tipo, ...extras });
   return { mock, loja, enlace, conexao, transmissor, despachar, esperas };
-}
-
-function telemetria(flags, campos = {}) {
-  return codificarPacote({
-    tipo: TIPO_TELEMETRIA, seq: 0, flags,
-    roll: 0, pitch: 0, yaw: 0, throttle: 0, ...campos,
-  });
 }
 
 test('adaptador: sem Web Bluetooth informa que não há suporte', async () => {
@@ -123,11 +114,12 @@ test('integração: conectar, armar e enviar chega ao módulo', async () => {
   assert.equal(loja.estado().conexao, Conexao.CONECTADO);
   despachar(Acao.ARMAR);
   despachar(Acao.EIXOS_ALTERADOS, { eixos: { pitch: 1 } });
-  transmissor.tick();
-  await assentar();
-  const p = decodificarPacote(mock.escritas[0]);
-  assert.equal(p.flags & FLAG_ARMADO, FLAG_ARMADO);
-  assert.equal(p.pitch, 1500);
+  for (let i = 0; i <= PACOTES_DE_INICIO; i++) {
+    transmissor.tick();
+    await assentar();
+  }
+  assert.deepEqual(mock.escritas.map((b) => b[0]),
+      [...Array(PACOTES_DE_INICIO).fill(0xf0), 0xe7]);
 });
 
 test('integração: cancelar o seletor volta a desconectado com aviso', async () => {
@@ -143,7 +135,7 @@ test('integração: queda desarma; a reconexão automática não rearma', async 
   const { mock, loja, conexao, transmissor, despachar, esperas } = montar();
   await conexao.conectar();
   despachar(Acao.ARMAR);
-  despachar(Acao.EIXOS_ALTERADOS, { eixos: { pitch: 1, throttle: 1 } });
+  despachar(Acao.EIXOS_ALTERADOS, { eixos: { pitch: 1 } });
   transmissor.tick();
   await assentar();
 
@@ -158,9 +150,7 @@ test('integração: queda desarma; a reconexão automática não rearma', async 
   const antes = mock.escritas.length;
   transmissor.tick();
   await assentar();
-  const p = decodificarPacote(mock.escritas[antes]);
-  assert.equal(p.flags & FLAG_ARMADO, 0);
-  assert.deepEqual([p.roll, p.pitch, p.yaw, p.throttle], [0, 0, 0, 0]);
+  assert.deepEqual([...mock.escritas[antes]], [0xff], 'volta mandando parar');
 });
 
 test('integração: reconexão desiste depois das tentativas', async () => {
@@ -188,36 +178,16 @@ test('integração: desconectar é recusado enquanto armado', async () => {
   assert.equal(loja.estado().conexao, Conexao.DESCONECTADO, 'e não tenta reconectar');
 });
 
-test('integração: telemetria chega ao estado, mesmo partida em pedaços', async () => {
-  const { mock, loja, conexao } = montar();
-  await conexao.conectar();
-  const bytes = [...telemetria(FLAG_ARMADO, { roll: -1234, pitch: 567, yaw: 4500, throttle: 300 })];
-  mock.notificar([0x00, ...bytes.slice(0, 6)]);
-  assert.equal(loja.estado().telemetria, null);
-  mock.notificar(bytes.slice(6));
-  const t = loja.estado().telemetria;
-  assert.equal(t.roll, -12.34);
-  assert.equal(t.pitch, 5.67);
-  assert.equal(t.yaw, 45);
-  assert.equal(t.throttle, 0.3);
-  assert.equal(t.armado, true);
-  assert.equal(t.instante, 1234);
-});
-
-test('integração: telemetria de failsafe desarma a página', async () => {
-  const { mock, loja, conexao, despachar } = montar();
-  await conexao.conectar();
-  despachar(Acao.ARMAR);
-  mock.notificar(telemetria(FLAG_PARADA | FLAG_FAILSAFE));
-  assert.equal(loja.estado().armado, false);
-  assert.match(loja.estado().motivoDesarme, /failsafe/);
-});
-
 test('integração: escrita lenta + PARAR não deixa valor antigo sair depois', async () => {
   const { mock, conexao, transmissor, despachar } = montar();
   await conexao.conectar();
   despachar(Acao.ARMAR);
-  despachar(Acao.EIXOS_ALTERADOS, { eixos: { pitch: 1, throttle: 1 } });
+  for (let i = 0; i < PACOTES_DE_INICIO; i++) {
+    transmissor.tick();
+    await assentar();
+  }
+  despachar(Acao.EIXOS_ALTERADOS, { eixos: { pitch: 1 } });
+  const inicio = mock.escritas.length;
 
   let soltar;
   mock.segurarEscritas = new Promise((resolver) => {
@@ -228,7 +198,7 @@ test('integração: escrita lenta + PARAR não deixa valor antigo sair depois', 
   despachar(Acao.PARAR);
   transmissor.tick();
   await assentar();
-  assert.equal(mock.escritas.length, 0);
+  assert.equal(mock.escritas.length, inicio);
 
   mock.segurarEscritas = null;
   soltar();
@@ -237,11 +207,9 @@ test('integração: escrita lenta + PARAR não deixa valor antigo sair depois', 
     transmissor.tick();
     await assentar();
   }
-  const pacotes = mock.escritas.map(decodificarPacote);
-  assert.equal(pacotes[0].pitch, 1500, 'a escrita já entregue ao rádio sai primeiro');
-  assert.equal(pacotes[1].flags & FLAG_PARADA, FLAG_PARADA, 'logo em seguida, a parada');
-  for (const p of pacotes.slice(1)) {
-    assert.equal(p.flags & FLAG_ARMADO, 0);
-    assert.deepEqual([p.roll, p.pitch, p.yaw, p.throttle], [0, 0, 0, 0]);
-  }
+  const mensagens = mock.escritas.slice(inicio).map((b) => decodificarByte(b[0]));
+  assert.deepEqual(mensagens[0], { tipo: 'posicao', pitch: 7, roll: 0 },
+      'a escrita já entregue ao rádio sai primeiro');
+  assert.ok(mensagens.slice(1).every((m) => m.tipo === 'desconectar'),
+      'depois dela, só 0xFF');
 });

@@ -7,12 +7,13 @@
 
 import { CONFIG_PADRAO } from '../dominio/config.js';
 import { Acao, Conexao, comandoDeSaida, podeArmar } from '../dominio/estado.js';
-import { paraHex } from '../dominio/protocolo.js';
+import {
+  Tipo, codificarComando, decodificarByte, paraHex,
+} from '../dominio/protocolo.js';
 import { criarBotaoDeSegurar, criarJoystick } from './controles.js';
 
 const TEMPO_PARA_ARMAR_MS = 1000;
 const PERIODO_DEBUG_MS = 250;
-const VALIDADE_TELEMETRIA_MS = 1000;
 
 const ROTULO_CONEXAO = {
   [Conexao.DESCONECTADO]: 'Desconectado',
@@ -20,8 +21,14 @@ const ROTULO_CONEXAO = {
   [Conexao.CONECTADO]: 'Conectado',
 };
 
-const graus = (valor) => `${valor.toFixed(1)}°`;
-const porcento = (fracao) => `${(fracao * 100).toFixed(0)}%`;
+const ROTULO_MENSAGEM = {
+  [Tipo.CONECTAR]: 'Conectar',
+  [Tipo.DESCONECTAR]: 'Parar',
+  [Tipo.POSICAO]: 'Posição',
+};
+
+/** Nível com sinal explícito: "+3", "-7", "0". */
+const nivel = (n) => (n > 0 ? `+${n}` : String(n));
 
 /**
  * @param {Object} deps
@@ -42,17 +49,10 @@ export function montarInterface({
   const despachar = (tipo, extras) => loja.despachar({ tipo, ...extras });
 
   // --- Controles de voo -------------------------------------------------
-  // Estilo "modo 2" de rádio: esquerdo = throttle e yaw; direito = pitch e roll.
-  const esquerdo = criarJoystick($('joystick-esquerdo'), {
-    retornaY: false,
-    aoMudar: (x, y) => despachar(Acao.EIXOS_ALTERADOS,
-        { eixos: { yaw: x, throttle: (y + 1) / 2 } }),
-  });
-  const direito = criarJoystick($('joystick-direito'), {
+  const joystick = criarJoystick($('joystick'), {
     aoMudar: (x, y) => despachar(Acao.EIXOS_ALTERADOS,
         { eixos: { roll: x, pitch: y } }),
   });
-  esquerdo.habilitarY(false); // throttle só funciona armado
 
   // --- Armar, desarmar e PARAR -----------------------------------------
   criarBotaoDeSegurar($('botao-armar'), {
@@ -157,23 +157,13 @@ export function montarInterface({
         'no Android e no PC, Chrome ou Edge.' :
         (estado.aviso ?? '');
 
-    const unidadeYaw = comando.yawTaxa ? '°/s' : '°';
-    $('cmd-roll').textContent = graus(comando.roll);
-    $('cmd-pitch').textContent = graus(comando.pitch);
-    $('cmd-yaw').textContent = `${comando.yaw.toFixed(1)}${unidadeYaw}`;
-    $('cmd-throttle').textContent = porcento(comando.throttle);
-
-    const t = estado.telemetria;
-    const recente = t && Date.now() - t.instante < VALIDADE_TELEMETRIA_MS;
-    $('med-roll').textContent = recente ? graus(t.roll) : '—';
-    $('med-pitch').textContent = recente ? graus(t.pitch) : '—';
-    $('med-yaw').textContent =
-        recente ? `${t.yaw.toFixed(1)}${t.yawTaxa ? '°/s' : '°'}` : '—';
-    $('med-throttle').textContent = recente ? porcento(t.throttle) : '—';
-    $('estado-firmware').textContent = !recente ? 'sem telemetria' :
-        t.failsafe ? 'FAILSAFE' :
-        t.paradaTravada ? 'parada travada' :
-        t.armado ? 'armado' : 'desarmado';
+    // Mostra exatamente o byte que sairia agora, decodificado de volta.
+    const byte = codificarComando(comando);
+    const lido = decodificarByte(byte[0]);
+    $('cmd-pitch').textContent = nivel(lido.pitch);
+    $('cmd-roll').textContent = nivel(lido.roll);
+    $('cmd-byte').textContent = paraHex(byte);
+    $('cmd-tipo').textContent = ROTULO_MENSAGEM[lido.tipo];
   }
 
   function desenharDebug() {
@@ -186,7 +176,6 @@ export function montarInterface({
     $('dbg-trava').textContent = !travaDeTela.suportada ? 'sem suporte' :
         travaDeTela.ativa() ? 'ativa' : 'inativa';
     $('dbg-desarme').textContent = loja.estado().motivoDesarme ?? '—';
-    desenhar(); // também envelhece a telemetria na tela
   }
 
   // Vários eventos de toque por quadro viram um desenho só.
@@ -202,10 +191,8 @@ export function montarInterface({
 
   loja.assinar((novo, anterior) => {
     if (novo.geracaoDeControles !== anterior.geracaoDeControles) {
-      esquerdo.reiniciar();
-      direito.reiniciar();
+      joystick.reiniciar();
     }
-    if (novo.armado !== anterior.armado) esquerdo.habilitarY(novo.armado);
     agendarDesenho();
   });
 

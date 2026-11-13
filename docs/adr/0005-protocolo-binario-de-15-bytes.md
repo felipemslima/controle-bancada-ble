@@ -1,6 +1,6 @@
 # 0005. Protocolo binário de 15 bytes
 
-- Status: Aceito
+- Status: Substituído pelo [ADR 0008](0008-protocolo-de-um-byte.md)
 - Data: 2026-11-12
 
 ## Contexto

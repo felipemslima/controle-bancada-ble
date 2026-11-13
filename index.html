@@ -27,43 +27,27 @@
         <thead>
           <tr>
             <th scope="col"><span class="visualmente-oculto">Origem</span></th>
-            <th scope="col">Roll</th>
             <th scope="col">Pitch</th>
-            <th scope="col">Yaw</th>
-            <th scope="col">Throttle</th>
+            <th scope="col">Roll</th>
+            <th scope="col">Byte</th>
+            <th scope="col">Mensagem</th>
           </tr>
         </thead>
         <tbody>
           <tr>
             <th scope="row">Comando</th>
-            <td id="cmd-roll">—</td>
             <td id="cmd-pitch">—</td>
-            <td id="cmd-yaw">—</td>
-            <td id="cmd-throttle">—</td>
-          </tr>
-          <tr class="linha-medido">
-            <th scope="row">Medido</th>
-            <td id="med-roll">—</td>
-            <td id="med-pitch">—</td>
-            <td id="med-yaw">—</td>
-            <td id="med-throttle">—</td>
+            <td id="cmd-roll">—</td>
+            <td id="cmd-byte" class="valor-byte">—</td>
+            <td id="cmd-tipo">—</td>
           </tr>
         </tbody>
       </table>
-      <p class="firmware">Firmware: <span id="estado-firmware">sem telemetria</span></p>
     </section>
 
-    <section class="controles" aria-label="Controles de voo">
+    <section class="controles" aria-label="Controle de pitch e roll">
       <div class="area-joystick">
-        <div id="joystick-esquerdo" class="joystick joystick-acelerador" aria-label="Throttle e yaw">
-          <span class="rotulo-controle rotulo-cima">Throttle</span>
-          <span class="rotulo-controle rotulo-lado">Yaw</span>
-          <div class="pino"></div>
-        </div>
-      </div>
-
-      <div class="area-joystick">
-        <div id="joystick-direito" class="joystick" aria-label="Pitch e roll">
+        <div id="joystick" class="joystick" aria-label="Pitch e roll">
           <span class="rotulo-controle rotulo-cima">Pitch</span>
           <span class="rotulo-controle rotulo-lado">Roll</span>
           <div class="pino"></div>
@@ -114,45 +98,22 @@
       </fieldset>
 
       <fieldset>
-        <legend>Limites</legend>
+        <legend>Envio</legend>
         <label class="campo">
           <span>Taxa de envio (Hz)</span>
-          <input type="number" name="taxaHz" min="5" max="50" step="1" inputmode="numeric">
-        </label>
-        <label class="campo">
-          <span>Ângulo máximo de roll/pitch (°)</span>
-          <input type="number" name="anguloMaxGraus" min="1" max="30" step="any" inputmode="decimal">
-        </label>
-        <label class="campo">
-          <span>Modo do yaw</span>
-          <select name="yawModo">
-            <option value="taxa">Taxa (°/s)</option>
-            <option value="angulo">Ângulo (°)</option>
-          </select>
-        </label>
-        <label class="campo">
-          <span>Taxa máxima de yaw (°/s)</span>
-          <input type="number" name="yawTaxaMaxGps" min="1" max="180" step="any" inputmode="decimal">
-        </label>
-        <label class="campo">
-          <span>Teto do throttle (%)</span>
-          <input type="number" name="tetoThrottlePct" min="0" max="100" step="any" inputmode="decimal">
+          <input type="number" name="taxaHz" min="10" max="50" step="1" inputmode="numeric">
         </label>
       </fieldset>
 
       <fieldset>
         <legend>Sentido dos eixos</legend>
         <label class="campo campo-marcar">
-          <input type="checkbox" name="inverterRoll">
-          <span>Inverter roll</span>
-        </label>
-        <label class="campo campo-marcar">
           <input type="checkbox" name="inverterPitch">
           <span>Inverter pitch</span>
         </label>
         <label class="campo campo-marcar">
-          <input type="checkbox" name="inverterYaw">
-          <span>Inverter yaw</span>
+          <input type="checkbox" name="inverterRoll">
+          <span>Inverter roll</span>
         </label>
       </fieldset>
 

@@ -4,11 +4,11 @@
  * Garantias de segurança deste módulo:
  *  1. Só existe UMA escrita em andamento. Não há fila: se o tick chega com
  *     uma escrita pendente, ele é descartado.
- *  2. O pacote é montado no instante do envio, a partir do estado atual.
+ *  2. O byte é montado no instante do envio, a partir do estado atual.
  *     Nenhum valor antigo fica guardado esperando para sair.
- *  3. Ao desarmar (PARAR, perda de foco etc.), o pacote zerado sai
+ *  3. Ao desarmar (PARAR, perda de foco etc.), o 0xFF (desconectar) sai
  *     imediatamente, ou logo após a escrita pendente terminar. Como as
- *     escritas são seriais, ele sempre chega DEPOIS de qualquer valor antigo.
+ *     escritas são seriais, ele sempre chega DEPOIS de qualquer posição antiga.
  *  4. Se uma escrita travar, a conexão é derrubada; o failsafe por timeout
  *     do firmware assume.
  */
@@ -26,7 +26,6 @@ export const LIMITE_ESCRITA_MS = 1000;
  * @param {function(): number=} deps.agora relógio em ms (injetável em testes)
  */
 export function criarTransmissor({ loja, enlace, agora = () => performance.now() }) {
-  let seq = 0;
   let ocupado = false;
   let urgente = false;
   let inicioDaEscrita = 0;
@@ -45,8 +44,7 @@ export function criarTransmissor({ loja, enlace, agora = () => performance.now()
       return;
     }
     const comando = comandoDeSaida(estado);
-    const pacote = codificarComando(comando, seq);
-    seq = (seq + 1) & 0xff;
+    const pacote = codificarComando(comando);
     ocupado = true;
     inicioDaEscrita = agora();
     let enviado = false;
@@ -62,7 +60,7 @@ export function criarTransmissor({ loja, enlace, agora = () => performance.now()
       ultimoPacote = pacote;
       contadores.enviados++;
       instantes.push(agora());
-      loja.despachar({ tipo: Acao.PACOTE_ENVIADO, parada: comando.parada });
+      loja.despachar({ tipo: Acao.PACOTE_ENVIADO, comando: comando.tipo });
     }
     if (urgente) {
       urgente = false;
